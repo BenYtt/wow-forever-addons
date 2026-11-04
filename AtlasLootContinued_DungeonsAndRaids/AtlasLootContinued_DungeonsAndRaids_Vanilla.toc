@@ -1,0 +1,26 @@
+﻿## Interface: 11509
+## Author: Okrah, Lag
+## Version: 12902
+## Dependencies: AtlasLootContinued
+## LoadOnDemand: 1
+
+## Title: AtlasLoot Continued |cFF0099FF[Dungeons and Raids]|r
+## Title-deDE: AtlasLoot Continued |cFF0099FF[Instanzen und Raids]|r
+## Title-esES: AtlasLoot Continued |cFF0099FF[Mazmorras y Bandas]|r
+## Title-frFR: AtlasLoot Continued |cFF0099FF[Donjons et Raids]|r
+## Notes: AtlasLoot loot tables from Dungeons and Raids
+## Notes-deDE: AtlasLoot Beuteverzeichnis der Instanzen und Raids
+## Notes-esES: AtlasLoot tablas de botín de Mazmorras y Bandas
+## Notes-frFR: Tables de butin des donjons et raids
+
+## X-Category: Map
+## X-License: GPL v2
+
+## X-AtlasLoot-LootModule: 1
+
+Locales\Locales.xml
+
+data.lua
+#data-sod.lua
+droprate.lua
+

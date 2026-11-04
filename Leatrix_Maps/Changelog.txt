@@ -1,0 +1,81 @@
+﻿1.60.25 - 21st October 2026
+- Removed the 'Use English language' option now that the addon has a language dropdown menu.
+
+1.60.24 - 20th October 2026
+- Added a language dropdown menu ('Settings') so you can choose which language you want the addon to use.
+- To use 'Simple map frame' with ElvUI, you need to disable the ElvUI World Map skin. 
+- Updated points of interest and translations.
+
+1.60.23 - 14th October 2026
+- Fixed a minor issue which caused the M key to always open the map without the quest log.
+
+1.60.21 - 14th October 2026
+- The 'Simple map frame' option now has a quest search box and the option is enabled by default once again.
+- Updated 'Show points of interest'.
+
+1.60.20 - 10th October 2026
+- Added a new option 'Hide blackout frame'.  If checked, the blackout frame will be hidden.
+
+1.60.19 - 7th October 2026
+- The 'Use simple map frame' now has a bronze border.  Thanks for the feedback.
+
+1.60.18 - 7th October 2026
+- The 'Use simple map frame' now has a toggle for the maximised map.
+
+1.60.17 - 7th October 2026
+- The 'Use simple map frame' setting is disabled by default.
+- Fixed a minor issue of a small deadzone with 'Unlock map frame' when 'Allow frame movement' was disabled.
+
+1.60.15 - 7th October 2026
+- Added a new setting 'Simple map frame'.  If checked, the map frame will look more like classic while still having modern features.  It's enabled by default.
+- Added a 'Reset map layout' button.  If clicked, the map position and scale will be reset to the game default values.
+- For 'Show points of interest', travel points of interest are now separate settings and there is now an additional setting if you want to show points of interest belonging to the opposing faction.
+- Note that native game controller support in Wow Forever is still in alpha development stage and may cause issues until Blizzard has progressed further along with developing the feature.
+
+1.60.14 - 6th October 2026
+- Updated 'Show points of interest'.
+
+1.60.13 - 6th October 2026
+- Updated 'Show points of interest'.
+
+1.60.12 - 5th October 2026
+- Updated 'Show points of interest'.
+
+1.60.11 - 3rd October 2026
+- The 'Show points of interest' setting now works with Blizzard's native game controller feature.  Also updated points of interest.
+- Keep in mind that Blizzard's game controller feature is currently in an alpha stage of development so you may experience issues with it whether you use addons or not.
+
+1.60.10 - 2nd October 2026
+- The 'Show zone levels' setting now works with Blizzard's native game controller feature.  Toggling the 'Show zone levels' setting now requires a UI reload.
+
+1.60.09 - 30th September 2026
+- The 'Show coordinates' setting now uses and modifies Blizzard's built-in coordinates.
+- For 'Show points of interest', dungeon levels will now be shown regardless of the 'Show zone levels' setting.
+- The 'Use default map' setting has been removed as it's not needed in Forever.
+- The 'Disable reading emote' setting has been removed as it's not needed in Forever.
+
+1.60.08 - 30th September 2026
+- For 'Show points of interest', replaced Blizzards's map data provider.  Also updated points of interest.
+- Fixed a taint issue when using Blizzard's new game controller feature.
+
+1.60.07 - 28th September 2026
+- Updated points of interest.
+
+1.60.06 - 27th September 2026
+- Updates for Forever Beta.
+
+1.60.05 - 24th September 2026
+- Updates for Forever Beta.  Zone crossing arrows are no longer clickable.
+
+1.60.04 - 24th September 2026
+- Updates for Forever Beta.
+
+1.60.03 - 23rd September 2026
+- Updated map reveal data for Forever.  A few zones don't have icons yet.
+
+1.60.02 - 23rd September 2026
+- Added 'Show points of interest' option and removed 'Show additional icons' option.
+- Added 'Show zone levels'.
+
+1.60.01 - 17th September 2026
+- Welcome to Forever Beta!

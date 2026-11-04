@@ -1,0 +1,6 @@
+<Bindings>
+	<!-- A category of its own, so Options > Keybindings shows a section called
+	     Manners. Under the shared ADDONS category the one line sat among every
+	     other addon's, with nothing on it saying whose it was. -->
+	<Binding name="CLICK MannersPrompt:LeftButton" category="Manners"/>
+</Bindings>

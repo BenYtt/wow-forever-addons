@@ -1,0 +1,370 @@
+local _, MoveAny = ...
+local hooksecurefunc = MoveAny.hooksecurefunc
+local ma_set_s = {}
+local ma_SetScaleAdjustment = {}
+function MoveAny:UpdateMicroButtonScale(button)
+	if ma_set_s[button] then return end
+	MoveAny:SafeExec(button, function()
+		if ma_set_s[button] then return end
+		ma_set_s[button] = true
+		button:SetScale(MAMenuBar:GetScale())
+		ma_set_s[button] = false
+	end, "UpdateMicroButtonScale:" .. button:GetName())
+end
+function MoveAny:GetMicroButtonSize()
+	if MoveAny:GetWoWBuild() == "RETAIL" then return 24, 32 end
+	return 24, 33
+end
+
+function MoveAny:GetMicroButtonYOffset()
+	if MoveAny:GetWoWBuild() == "RETAIL" then return -3 end
+	if MoveAny:GetWoWBuild() == "MISTS" then return -3 end
+	if MoveAny:GetWoWBuild() == "TBC" then return -3 end
+	if MoveAny:GetWoWBuild() == "CLASSIC" then return -3 end
+	return -4
+end
+
+local oldHides = {}
+function MoveAny:PetBattleChat(frame)
+	if not MoveAny:IsPetBattleAvailable() then return end
+	if frame == nil then return end
+	oldHides[frame] = oldHides[frame] or frame.Hide
+	if MoveAny.IsInPetBattle and MoveAny:IsInPetBattle() then
+		frame.Hide = frame.Show
+	else
+		frame.Hide = oldHides[frame]
+	end
+end
+
+local microCount = 0
+local microBarQueued = false
+local microBarDirty = false
+local updateBar = false
+function MoveAny:DoUpdateMicroBar(from)
+	if MoveAny:DEBUG() then
+		MoveAny:DEB(">>> EXE <<<", from)
+		microCount = microCount + 1
+		MoveAny:DEB("UpdateMicroBar", microCount)
+	end
+
+	microBarDirty = false
+	if updateBar then return end
+	updateBar = true
+	xpcall(MoveAny.DoUpdateMicroBarNow, geterrorhandler(), MoveAny)
+	updateBar = false
+end
+
+function MoveAny:DoUpdateMicroBarNow()
+	if MoveAny:GetWoWBuild() ~= "RETAIL" and MoveAny:GetWoWBuild() ~= "CLASSIC" and MoveAny:GetWoWBuild() ~= "TBC" and MoveAny:GetWoWBuild() ~= "MISTS" then MoveAny:PetBattleChat(ChatFrame1) end
+	if MoveAny.IsPetBattleAvailable and (MoveAny:IsPetBattleAvailable() and MoveAny.IsInPetBattle and MoveAny:IsInPetBattle() or PetBattleFrame and PetBattleFrame:IsShown()) then ChatFrame1:SetShown(true) end
+	MoveAny:SetPoint(MAMenuBar, MAMenuBar:GetPoint())
+	if MoveAny.UpdateActionBar then MoveAny:UpdateActionBar(MAMenuBar, "DoUpdateMicroBar") end
+end
+
+function MoveAny:UpdateMicroBar(from)
+	if updateBar then return end
+	microBarDirty = true
+	if microBarQueued then return end
+	microBarQueued = true
+	if from ~= "mb" then MoveAny:DoUpdateMicroBar(from) end
+	MoveAny:After(0, function()
+		microBarQueued = false
+		if microBarDirty then MoveAny:DoUpdateMicroBar("QUEUED") end
+	end, "UpdateMicroBar")
+end
+
+local mmcMoved = false
+local mmcScaled = false
+local mmcAlpha = false
+local mmcAlphaHooked = false
+local hideMicroMenuBeforeInit = false
+local mbMovedOrScaled = false
+local function UpdateMicroMenuContainerVisibility()
+	if MicroMenuContainer == nil then return end
+	local alpha
+	if MAMenuBar then
+		local hidden = MoveAny:GetEleOption("MICROMENU", "Hide", false, "UpdateMicroMenuContainerVisibility") or MoveAny:GetParent(MAMenuBar) == MoveAny:GetHidden()
+		if hidden or MAMenuBar:GetAlpha() == 0 then
+			alpha = 0
+		else
+			alpha = 1
+		end
+	elseif hideMicroMenuBeforeInit then
+		alpha = 0
+	else
+		return
+	end
+
+	if MicroMenuContainer:GetAlpha() == alpha then return end
+	mmcAlpha = true
+	MicroMenuContainer:SetAlpha(alpha)
+	mmcAlpha = false
+end
+
+local function HookMicroMenuContainerAlpha()
+	if MicroMenuContainer == nil or mmcAlphaHooked then return end
+	mmcAlphaHooked = true
+	hooksecurefunc(MicroMenuContainer, "SetAlpha", function()
+		if mmcAlpha then return end
+		UpdateMicroMenuContainerVisibility()
+	end)
+end
+
+local function HideMicroMenuArt()
+	if MicroMenu == nil then return end
+	if MicroMenu.BorderArt then MicroMenu.BorderArt:Hide() end
+	if MicroMenu.BackgroundArt then MicroMenu.BackgroundArt:Hide() end
+end
+
+function MoveAny:InitMicroMenu()
+	if MoveAny:IsEnabled("MICROMENU", false) then
+		HideMicroMenuArt()
+		if MicroMenuContainer then
+			hooksecurefunc(MicroMenuContainer, "SetPoint", function(sel, ...)
+				if mmcMoved then return end
+				mmcMoved = true
+				if MoveAny.UpdateMicroBar then MoveAny:UpdateMicroBar("MMC SetPoint") end
+				mmcMoved = false
+			end)
+
+			hooksecurefunc(MicroMenuContainer, "SetScale", function(sel, ...)
+				if mmcScaled then return end
+				mmcScaled = true
+				if MoveAny.UpdateMicroBar then MoveAny:UpdateMicroBar("MMC SetScale") end
+				mmcScaled = false
+			end)
+
+			HookMicroMenuContainerAlpha()
+		end
+
+		if MicroMenu and MicroMenu.Layout then
+			hooksecurefunc(MicroMenu, "Layout", function()
+				if updateBar or MAMenuBar == nil then return end
+				MoveAny:DoUpdateMicroBar("MM Layout")
+			end)
+		end
+
+		local MBTNS = MoveAny:GetMicroMenuButtons()
+		if MoveAny:GetWoWBuild() == "CLASSIC" then
+			for i, v in pairs(MBTNS) do
+				if v == "LFGMicroButton" then tremove(MBTNS, i) end
+			end
+		end
+
+		if MicroButtonAndBagsBar and MicroButtonAndBagsBar.MicroBagBar then MicroButtonAndBagsBar.MicroBagBar:Hide() end
+		local sw1, sh1 = MoveAny:GetMicroButtonSize()
+		local mbc = 11
+		if MBTNS then mbc = #MBTNS end
+		local opts = MoveAny:GetEleOptions("MICROMENU")
+		opts["ROWS"] = opts["ROWS"] or 1
+		MAMenuBar = CreateFrame("Frame", "MAMenuBar", MoveAny:GetMainPanel())
+		MAMenuBar:SetSize(sw1 * mbc, sh1)
+		if MicroButtonAndBagsBar then
+			local p1, _, p3, p4, p5 = MicroButtonAndBagsBar:GetPoint()
+			MAMenuBar:SetPoint(p1, MoveAny:GetMainPanel(), p3, p4, p5)
+		elseif MoveAny:GetWoWBuild() ~= "RETAIL" then
+			MAMenuBar:SetPoint("BOTTOMRIGHT", MoveAny:GetMainPanel(), "BOTTOMRIGHT", 0, 0)
+		else
+			MAMenuBar:SetPoint("CENTER", MoveAny:GetMainPanel(), "CENTER", 0, 0)
+		end
+
+		MoveAny:ResetAbBtns(MAMenuBar)
+		hooksecurefunc(MAMenuBar, "SetParent", function(sel, parent)
+			if parent == MoveAny:GetHidden() then
+				for i, mbname in pairs(MBTNS) do
+					local mb = _G[mbname]
+					if mb then MoveAny:HideBtn(mb) end
+				end
+			else
+				for i, mbname in pairs(MBTNS) do
+					local mb = _G[mbname]
+					if mb then MoveAny:ShowBtn(mb) end
+				end
+			end
+			UpdateMicroMenuContainerVisibility()
+		end)
+
+		if MBTNS then
+			for i, mbname in pairs(MBTNS) do
+				local mb = _G[mbname]
+				if mb then
+					function mb:GetMAEle()
+						return MAMenuBar
+					end
+
+					MoveAny:RegisterChildAlphaFrame(mb, MAMenuBar)
+					local sw2, sh2 = MoveAny:GetMicroButtonSize()
+					if MoveAny:GetWoWBuild() == "RETAIL" then
+						mb:SetSize(sw2, sh2)
+						if mb.Background then
+							local bw, bh = mb.Background:GetSize()
+							local dx = math.max(0, (bw - sw2) / 2)
+							local dy = math.max(0, (bh - sh2) / 2)
+							mb:SetHitRectInsets(-dx, -dx, -dy, -dy)
+						end
+					elseif MoveAny:GetWoWBuild() == "CLASSIC" then
+						mb:SetParent(MAMenuBar)
+						mb.ofx = -2
+						mb.ofy = 2
+						mb.rsw = 24
+						mb.rsh = 33
+					elseif MoveAny:GetWoWBuild() == "TBC" then
+						mb:SetParent(MAMenuBar)
+						mb.ofx = -2
+						mb.ofy = 2
+						mb.rsw = 24
+						mb.rsh = 33
+					elseif MoveAny:GetWoWBuild() == "MISTS" then
+						mb:SetParent(MAMenuBar)
+						mb.ofx = -2
+						mb.ofy = 2
+						mb.rsw = 24
+						mb.rsh = 33
+					else
+						mb:SetParent(MAMenuBar)
+						mb.ofx = -2
+						mb.ofy = 22
+						mb.rsw = 24
+						mb.rsh = 33
+					end
+
+					if i == 1 or mb == MainMenuMicroButton then
+						hooksecurefunc(mb, "SetPoint", function(sel, ...)
+							if mbMovedOrScaled then return end
+							mbMovedOrScaled = true
+							if MoveAny.UpdateMicroBar then MoveAny:UpdateMicroBar("mb") end
+							mbMovedOrScaled = false
+						end)
+
+						hooksecurefunc(mb, "SetScale", function(sel, ...)
+							if mbMovedOrScaled then return end
+							mbMovedOrScaled = true
+							if MoveAny.UpdateMicroBar then MoveAny:UpdateMicroBar("mb") end
+							mbMovedOrScaled = false
+						end)
+					end
+
+					mb:ClearAllPoints()
+					mb:SetPoint("BOTTOM", MAMenuBar, "BOTTOM", 0, MoveAny:GetMicroButtonYOffset())
+					hooksecurefunc(MAMenuBar, "SetAlpha", function(sel, alpha)
+						if MoveAny:GetParent(sel) == MoveAny:GetHidden() then
+							MoveAny:HideBtn(mb)
+						else
+							mb:SetAlpha(alpha)
+						end
+						UpdateMicroMenuContainerVisibility()
+					end)
+					if MoveAny:GetWoWBuild() == "RETAIL" then
+						hooksecurefunc(MAMenuBar, "SetScale", function()
+							MoveAny:UpdateMicroButtonScale(mb)
+						end)
+
+						hooksecurefunc(mb, "SetScale", function()
+							MoveAny:UpdateMicroButtonScale(mb)
+						end)
+
+						MoveAny:UpdateMicroButtonScale(mb)
+					end
+
+					hooksecurefunc(MAMenuBar, "Hide", function(sel)
+						if MoveAny:GetParent(sel) ~= MoveAny:GetHidden() then mb:Show() end
+					end)
+					if MicroMenu and MicroMenu.SetScaleAdjustment then
+						hooksecurefunc(MicroMenu, "SetScaleAdjustment", function(sel)
+							if ma_SetScaleAdjustment[sel] then return end
+							ma_SetScaleAdjustment[sel] = true
+							sel:SetScaleAdjustment(1)
+							ma_SetScaleAdjustment[sel] = false
+						end)
+
+						MicroMenu:SetScaleAdjustment(1)
+					end
+
+					if mb ~= StoreMicroButton then mb:Show() end
+					MoveAny:AddAbBtns(MAMenuBar, mb)
+				end
+			end
+			UpdateMicroMenuContainerVisibility()
+
+			if GuildMicroButton and SocialsMicroButton then
+				SocialsMicroButton:SetScale(0.5)
+				MoveAny:SetPoint(SocialsMicroButton, "CENTER", GuildMicroButton, "CENTER", 0, 0)
+			end
+
+			local f = CreateFrame("Frame")
+			MoveAny:RegisterEvent(f, "UNIT_EXITED_VEHICLE", "player")
+			MoveAny:RegisterEvent(f, "ACTIONBAR_PAGE_CHANGED")
+			MoveAny:RegisterEvent(f, "UPDATE_OVERRIDE_ACTIONBAR")
+			MoveAny:RegisterEvent(f, "UPDATE_BONUS_ACTIONBAR")
+			MoveAny:RegisterEvent(f, "UPDATE_VEHICLE_ACTIONBAR")
+			MoveAny:RegisterEvent(f, "PET_BATTLE_CLOSE")
+			MoveAny:RegisterEvent(f, "PET_BATTLE_OPENING_START")
+			MoveAny:RegisterEvent(f, "PET_BATTLE_OPENING_DONE")
+			MoveAny:OnEvent(f, function(sel, event, unit) if MoveAny.UpdateMicroBar then MoveAny:UpdateMicroBar("EVENT") end end, "UpdateMicroBar")
+		end
+
+		if MoveAny.UpdateActionBar then
+			MoveAny:AddBarName(MAMenuBar, "MAMenuBar")
+			if MoveAny.UpdateMicroBar then MoveAny:UpdateMicroBar("INIT") end
+			MoveAny:After(2, function()
+				if MoveAny.UpdateMicroBar then MoveAny:UpdateMicroBar("INIT DELAYED") end
+				if MoveAny:GetWoWBuild() ~= "RETAIL" and MoveAny:GetWoWBuild() ~= "CLASSIC" and MoveAny:GetWoWBuild() ~= "TBC" and MoveAny:GetWoWBuild() ~= "MISTS" then
+					function MoveAny:UpdateMicroMenu()
+						local overrideChanged = false
+						local parentChanged = false
+						if OverrideActionBar and (OverrideActionBar:IsShown() ~= OverrideActionBar.isshown or OverrideActionBar.slideOut and OverrideActionBar.slideOut:IsPlaying() ~= OverrideActionBar.isplaying) then
+							OverrideActionBar.isshown = OverrideActionBar:IsShown()
+							OverrideActionBar.isplaying = OverrideActionBar.slideOut:IsPlaying()
+							overrideChanged = true
+						end
+
+						if CharacterMicroButton.curparent ~= MoveAny:GetParent(CharacterMicroButton) then
+							CharacterMicroButton.curparent = MoveAny:GetParent(CharacterMicroButton)
+							parentChanged = true
+						end
+
+						if MoveAny:GetParent(CharacterMicroButton) ~= MAMenuBar and parentChanged and (MAMenuBar.redots == nil or GetTime() + 0.11 > MAMenuBar.redots) then MAMenuBar.redots = GetTime() + 0.11 end
+						if overrideChanged and (MAMenuBar.redots == nil or GetTime() + 0.51 > MAMenuBar.redots) then MAMenuBar.redots = GetTime() + 0.51 end
+						if MAMenuBar.redots ~= nil and GetTime() > MAMenuBar.redots + 0.1 then
+							if CharacterMicroButton then
+								for i, v in pairs(MBTNS) do
+									local mmbtn = _G[v]
+									if mmbtn then mmbtn:SetParent(MAMenuBar) end
+								end
+							end
+
+							if MoveAny.UpdateMicroBar then MoveAny:UpdateMicroBar("CLASSIC FIX") end
+							MAMenuBar.redots = nil
+						end
+
+						MoveAny:After(0.1, MoveAny.UpdateMicroMenu, "UpdateMicroMenu")
+					end
+
+					MoveAny:UpdateMicroMenu()
+				end
+			end, "InitMicroMenu")
+		end
+	end
+end
+
+do
+	local profileName = MATABPC and MATABPC["CURRENTPROFILE"] or "DEFAULT"
+	local profile = MATAB and MATAB["PROFILES"] and MATAB["PROFILES"][profileName]
+	local options = profile and profile["ELES"] and profile["ELES"]["OPTIONS"]
+	local microMenuOptions = options and options["MICROMENU"]
+	if microMenuOptions and microMenuOptions["ENABLED"] then HideMicroMenuArt() end
+	if microMenuOptions and microMenuOptions["ENABLED"] and microMenuOptions["Hide"] then
+		hideMicroMenuBeforeInit = true
+		HookMicroMenuContainerAlpha()
+		UpdateMicroMenuContainerVisibility()
+		if MicroMenuContainer == nil then
+			local waitForMicroMenu = CreateFrame("Frame")
+			waitForMicroMenu:SetScript("OnUpdate", function(sel)
+				if MicroMenuContainer == nil then return end
+				sel:SetScript("OnUpdate", nil)
+				HookMicroMenuContainerAlpha()
+				UpdateMicroMenuContainerVisibility()
+			end)
+		end
+	end
+end

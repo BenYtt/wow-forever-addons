@@ -1,0 +1,36 @@
+﻿## Interface: 20506
+## Author: Okrah, Lag
+## Version: 12902
+## Dependencies: AtlasLootContinued
+## LoadOnDemand: 1
+
+## Title: AtlasLoot Continued |cFF22B14C[Options]|r
+## Title-deDE: AtlasLoot Continued |cFF22B14C[Optionen]|r
+## Title-esES: AtlasLoot Continued |cFF22B14C[Opciones]|r
+## Title-frFR: AtlasLoot Continued |cFF22B14C[Options]|r
+## Notes: AtlasLoot options module
+## Notes-deDE: AtlasLoot Optionen
+## Notes-esES: AtlasLoot módulo de opciones
+## Notes-frFR: Module des options
+
+## X-Category: Map
+## X-License: GPL v2
+
+embeds.xml
+
+Locales\constants.cn.lua
+Locales\constants.de.lua
+Locales\constants.es.lua
+Locales\constants.fr.lua
+Locales\constants.it.lua
+Locales\constants.kr.lua
+Locales\constants.mx.lua
+Locales\constants.pt.lua
+Locales\constants.ru.lua
+Locales\constants.tw.lua
+
+Core.lua
+Main.lua
+Windows.lua
+MiniMapButton.lua
+Addons.lua

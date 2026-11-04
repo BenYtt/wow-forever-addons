@@ -1,0 +1,59 @@
+local L = DBM_GUI_L
+
+local BarSetupPanel = DBM_GUI.Cat_Timers:CreateNewPanel(L.Panel_Behavior, "option")
+
+local BarBehaviors = BarSetupPanel:CreateArea(L.AreaTitle_Behavior)
+local movemebutton = BarBehaviors:CreateButton(L.MoveMe, 100, 16)
+movemebutton:SetPoint("TOPRIGHT", BarBehaviors.frame, "TOPRIGHT", -2, -4)
+movemebutton:SetNormalFontObject(GameFontNormalSmall)
+movemebutton:SetHighlightFontObject(GameFontNormalSmall)
+movemebutton:SetScript("OnClick", function()
+	DBM_GUI:CollapseForPreview(DBT:ShowMovableBar())
+end)
+
+local testmebutton = BarBehaviors:CreateButton(L.Button_TestBars, 100, 16)
+testmebutton:SetPoint("BOTTOMRIGHT", BarBehaviors.frame, "BOTTOMRIGHT", -2, 4)
+testmebutton:SetNormalFontObject(GameFontNormalSmall)
+testmebutton:SetHighlightFontObject(GameFontNormalSmall)
+testmebutton:SetScript("OnClick", function()
+	DBM_GUI:CollapseForPreview(DBM:DemoMode())
+end)
+
+-- Functions for bar setup
+local function createDBTOnValueChangedHandler(option)
+	return function(value)
+		DBT:SetOption(option, value)
+	end
+end
+
+local DecimalSlider = BarBehaviors:CreateSlider(L.Bar_Decimal, 1, 60, 1, nil, DBT.Options.TDecimal, createDBTOnValueChangedHandler("TDecimal"))
+DecimalSlider:SetPoint("TOPLEFT", BarBehaviors.frame, "TOPLEFT", 20, -25)
+
+local EnlargeTimeSlider = BarBehaviors:CreateSlider(L.Bar_EnlargeTime, 6, 30, 1, nil, DBT.Options.EnlargeBarTime, createDBTOnValueChangedHandler("EnlargeBarTime"))
+EnlargeTimeSlider:SetPoint("TOPLEFT", BarBehaviors.frame, "TOPLEFT", 230, -25)
+EnlargeTimeSlider.myheight = 0
+
+local BarsHiddenSlider = BarBehaviors:CreateSlider(L.Bar_AppearTime, 30, 300, 1, nil, DBT.Options.HiddenBarTime, createDBTOnValueChangedHandler("HiddenBarTime"))
+BarsHiddenSlider:SetPoint("TOPLEFT", BarBehaviors.frame, "TOPLEFT", 20, -75)
+BarBehaviors.frame:HookScript("OnShow", function()
+	DecimalSlider:SetValueSilent(DBT.Options.TDecimal)
+	EnlargeTimeSlider:SetValueSilent(DBT.Options.EnlargeBarTime)
+	BarsHiddenSlider:SetValueSilent(DBT.Options.HiddenBarTime)
+end)
+
+local HiddenBarsToggle = BarBehaviors:CreateCheckButton(L.Bar_HideLongBars, true, nil, nil, "HideLongBars")
+HiddenBarsToggle:SetPoint("TOPLEFT", DecimalSlider, "BOTTOMLEFT", 0, -65)
+
+BarBehaviors:CreateCheckButton(L.ClickThrough, true, nil, nil, "ClickThrough")
+BarBehaviors:CreateCheckButton(L.DisableRightClickBar, true, nil, nil, "DisableRightClick")
+local shortTimerText = BarBehaviors:CreateCheckButton(L.ShortTimerText, true, nil, "ShortTimerText")
+shortTimerText:HookScript("OnClick", function()
+	DBM:RefreshSpellRenames()
+end)
+BarBehaviors:CreateCheckButton(L.KeepBar, true, nil, nil, "KeepBars")
+if not DBM:IsRestricted() then
+	--Only option we can't restore even with mod hardcodes
+	BarBehaviors:CreateCheckButton(L.FadeBar, true, nil, nil, "FadeBars")
+else
+	BarBehaviors:CreateCheckButton(L.HardcodedTimer, true, nil, "HardcodedTimer")
+end

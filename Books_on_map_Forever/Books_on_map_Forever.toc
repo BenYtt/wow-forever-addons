@@ -1,0 +1,46 @@
+## Interface: 11508, 11509, 11601, 16001
+## Title: Books on map (Forever)
+## Notes: Shows the WoW Forever library books on the world map
+## Author: Daeler
+## Version: 2.1.1
+## IconTexture: Interface\AddOns\Books_on_map_Forever\adds\icon
+## X-Category: Map
+## Category: Daeler Addons
+## OptionalDeps: TomTom, ShortestPathForever
+## SavedVariables: BooksOnMapForeverGlobal
+## SavedVariablesPerCharacter: BooksOnMapForeverDB
+## Title-frFR: Books on map (Forever)
+## Notes-frFR: Affiche les livres de la bibliothèque de WoW Forever sur la carte du monde
+# Libraries
+Libs\LibStub\LibStub.lua
+Libs\CallbackHandler-1.0\CallbackHandler-1.0.lua
+Libs\LibDataBroker-1.1\LibDataBroker-1.1.lua
+Libs\LibDBIcon-1.0\LibDBIcon-1.0.lua
+
+# Localization
+Locales\Locales.lua
+Locales\frFR.lua
+
+# Data
+Data\Books.lua
+
+# Core
+Core\Core.lua
+Core\Navigation.lua
+Core\Skin.lua
+Core\Detection.lua
+Core\Commands.lua
+
+# UI
+modules\Map.lua
+modules\Options.lua
+modules\SideTabs.lua
+modules\Rewards.lua
+modules\Group.lua
+modules\GroupPanel.lua
+modules\Route.lua
+modules\Minimap.lua
+modules\MinimapPins.lua
+modules\Broker.lua
+modules\Toast.lua
+modules\Welcome.lua

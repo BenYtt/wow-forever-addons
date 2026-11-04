@@ -1,0 +1,1414 @@
+local _, private = ...
+
+local isRetail = DBM:IsRetail()
+local isClassic = DBM:IsVanilla()
+
+local L		= DBM_GUI_L
+local CL	= DBM_COMMON_L
+
+---@class DBMGUI
+local DBM_GUI = DBM_GUI
+
+local setmetatable, select, type, tonumber, strsplit, mfloor, mmax, mmin, tinsert = setmetatable, select, type, tonumber, strsplit, math.floor, math.max, math.min, table.insert
+local CreateFrame, GetCursorPosition, UIParent, GameTooltip, NORMAL_FONT_COLOR, GameFontNormal = CreateFrame, GetCursorPosition, UIParent, GameTooltip, NORMAL_FONT_COLOR, GameFontNormal
+local DBM = DBM
+local CreateTextureMarkup, ColorPickerFrame, PlaySound = CreateTextureMarkup, ColorPickerFrame, PlaySound
+
+local GetSpellDescription = C_Spell.GetSpellDescription
+
+--TODO, not 100% sure which ones use html and which don't so some might need true added or removed for 2nd arg
+local function parseDescription(name, usesHTML)
+	if not name then
+		return
+	end
+	local spellName = name
+	if name:find("%$spell:ej") then -- It is journal link :-)
+		name = name:gsub("%$spell:ej(%d+)", "$journal:%1")
+	end
+	if name:find("%$spell:") then
+		name = name:gsub("%$spell:(%-?%d+)", function(id)
+			local spellId = tonumber(id)
+			if spellId then
+				if spellId < 0 then
+				    return "$journal:" .. -spellId
+				end
+				spellName = DBM:GetSpellName(spellId)
+			end
+			if not spellName then
+				spellName = CL.UNKNOWN
+				DBM:Debug("Spell ID does not exist: " .. spellId)
+			end
+			--The HTML parser breaks if spell name has & in it if it's not encoded to html formating
+			if usesHTML and spellName:find("&") then
+				spellName = spellName:gsub("&", "&amp;")
+			end
+			return ("|cff71d5ff|Hspell:%d|h%s|h|r"):format(spellId, spellName)
+		end)
+	end
+	if name:find("%$journal:") then
+		name = name:gsub("%$journal:(%d+)", function(id)
+			spellName = DBM:EJ_GetSectionInfo(tonumber(id))
+			if not spellName then
+				DBM:Debug("Journal ID does not exist: " .. id)
+			end
+			local link = select(9, DBM:EJ_GetSectionInfo(tonumber(id))) or CL.UNKNOWN
+			return link:gsub("|h%[(.*)%]|h", "|h%1|h")
+		end)
+	end
+	return name, spellName
+end
+private.parseDescription = parseDescription
+
+---@class DBMPanel: DBMGUI
+---@field frame Frame
+local PanelPrototype = {}
+setmetatable(PanelPrototype, {
+	__index = DBM_GUI
+})
+
+local abilityTestContextByFrame = setmetatable({}, { __mode = "k" })
+
+function DBM_GUI:CollapseForPreview(duration)
+	local optionsFrame = _G["DBM_GUI_OptionsFrame"]
+	if not duration or duration <= 0 or not optionsFrame or not optionsFrame:IsShown() or not optionsFrame.SetCollapsed then
+		return
+	end
+	optionsFrame:SetCollapsed(true)
+	if optionsFrame.ScheduleAutoUncollapse then
+		optionsFrame:ScheduleAutoUncollapse(duration)
+	end
+end
+
+function PanelPrototype:GetLastObj()
+	return self.lastobject
+end
+
+function PanelPrototype:SetLastObj(obj)
+	self.lastobject = obj
+end
+
+function PanelPrototype:SetAbilityTestContext(mod, spellKey, renameSpellId)
+	if self and self.frame then
+		abilityTestContextByFrame[self.frame] = {
+			mod = mod,
+			spellKey = spellKey,
+			renameSpellId = renameSpellId
+		}
+	end
+end
+
+function PanelPrototype:CreateCreatureModelFrame(width, height, creatureid, scale)
+	---@class DBMPanelCreatureModel: PlayerModel
+	local model = CreateFrame("PlayerModel", "DBM_GUI_Option_" .. self:GetNewID(), self.frame)
+	model.mytype = "modelframe"
+	model:SetSize(width or 100, height or 200)
+	model:SetCreature(tonumber(creatureid) or 448) -- Hogger!!! he kills all of you
+	if scale then
+		model:SetModelScale(scale)
+	end
+	self:SetLastObj(model)
+	return model
+end
+
+function PanelPrototype:CreateSpellDesc(text)
+	---@class DBMPanelSpellDesc: Frame
+	local test = CreateFrame("Frame", "DBM_GUI_Option_" .. self:GetNewID(), self.frame)
+	test:SetPoint("TOPLEFT", self.frame, "TOPLEFT", 15, -10)
+	test:SetPoint("RIGHT", self.frame, -15, 0)
+	test.mytype = "spelldesc"
+	test.hasDesc = false
+	local textblock = test:CreateFontString(test:GetName() .. "Text", "ARTWORK")
+	textblock:SetFontObject(GameFontWhite)
+	textblock:SetJustifyH("LEFT")
+	textblock:SetAllPoints()
+	-- Description logic
+	if type(text) == "number" then
+		local spell = Spell:CreateFromSpellID(text)
+		textblock:SetText("Loading...")
+		spell:ContinueOnSpellLoad(function()
+			text = GetSpellDescription(spell:GetSpellID())
+			if not text or text == "" then
+				text = L.NoDescription
+			else
+				test.hasDesc = true
+			end
+			textblock:SetText(text:gsub('|cffffffff', '|cff71d5ff'))
+			test:SetHeight(textblock:GetStringHeight())
+			if DBM_GUI.currentViewing then
+				_G["DBM_GUI_OptionsFrame"]:DisplayFrame(DBM_GUI.currentViewing)
+			end
+		end)
+	else
+		if text == "" then
+			text = L.NoDescription
+		else
+			test.hasDesc = true
+		end
+		textblock:SetText(text)
+	end
+	test:SetHeight(textblock:GetStringHeight())
+	self:SetLastObj(test)
+	return test
+end
+
+function PanelPrototype:CreateText(text, width, autoplaced, style, justify, myheight)
+	---@class DBMPanelText: Frame
+	local textFrame = CreateFrame("Frame", "DBM_GUI_Option_" .. self:GetNewID(), self.frame)
+	---@class DBMPanelTextblock: FontString
+	---@field myheight number
+	local textblock = self.frame:CreateFontString(textFrame:GetName() .. "Text", "ARTWORK")
+	textblock:SetFontObject(style or GameFontNormal)
+	textblock:SetText(parseDescription(text))
+	textblock:SetJustifyH(justify or "LEFT")
+	textblock:SetPoint("TOPLEFT", textFrame)
+	textblock:SetWidth(width or self.frame:GetWidth())
+	if autoplaced then
+		if select("#", self.frame:GetChildren()) == 2 then
+			textFrame:SetPoint("TOPLEFT", self.frame, 15, -12)
+		else
+			textFrame:SetPoint("TOPLEFT", select(-2, self.frame:GetChildren()) or self.frame, "BOTTOMLEFT", 0, -12)
+		end
+	end
+	textFrame:SetSize(width or self.frame:GetWidth(), textblock:GetStringHeight())
+	textFrame.mytype = "textblock"
+	textFrame.autowidth = not width
+	textFrame.myheight = myheight
+	self:SetLastObj(textblock)
+	return textblock
+end
+
+function PanelPrototype:CreateButton(title, width, height, onclick, font, highlightFont)
+	---@class DBMPanelButton: Button
+	---@field myheight number
+	---@field addon table
+	---@field headline DBMPanelTextblock
+	local button = CreateFrame("Button", "DBM_GUI_Option_" .. self:GetNewID(), self.frame, "UIPanelButtonTemplate")
+	button.mytype = "button"
+	button:SetSize(width or 100, height or 20)
+	button:SetText(parseDescription(title, true))
+	if onclick then
+		button:SetScript("OnClick", onclick)
+	end
+	if font or highlightFont then
+		button:SetNormalFontObject(font or highlightFont)
+		button:SetHighlightFontObject(highlightFont or font)
+	end
+	if _G[button:GetName() .. "Text"]:GetStringWidth() > button:GetWidth() then
+		button:SetWidth(_G[button:GetName() .. "Text"]:GetStringWidth() + 25)
+	end
+	self:SetLastObj(button)
+	return button
+end
+
+local colorPickerSession
+local function releaseColorPicker(session)
+	if colorPickerSession ~= session then return end
+	colorPickerSession = nil
+	if ColorPickerFrame:GetScript("OnHide") == session.onHide then
+		ColorPickerFrame:SetScript("OnHide", session.previousOnHide)
+	end
+end
+
+local function hideColorPicker(owner)
+	local session = colorPickerSession
+	if session and session.owner == owner then
+		local ownsPicker = ColorPickerFrame.swatchFunc == session.swatchFunc and ColorPickerFrame.cancelFunc == session.cancelFunc
+		releaseColorPicker(session)
+		if ownsPicker then ColorPickerFrame:Hide() end
+	end
+end
+
+local function showColorPicker(owner, r, g, b, apply, cancel, isCurrent)
+	ColorPickerFrame:Hide()
+	local options, barOptions = DBM.Options, DBT.Options
+	local session = {owner = owner, previousOnHide = ColorPickerFrame:GetScript("OnHide")}
+	colorPickerSession = session
+	local function current()
+		return colorPickerSession == session and ColorPickerFrame.swatchFunc == session.swatchFunc and ColorPickerFrame.cancelFunc == session.cancelFunc
+			and options == DBM.Options and barOptions == DBT.Options and isCurrent()
+	end
+	session.swatchFunc = function()
+		if current() then apply(ColorPickerFrame:GetColorRGB()) end
+	end
+	session.cancelFunc = function()
+		if current() then cancel() end
+		releaseColorPicker(session)
+	end
+	-- Okay also uses swatchFunc; completion is the subsequent native hide.
+	session.onHide = function(...)
+		releaseColorPicker(session)
+		if session.previousOnHide then session.previousOnHide(...) end
+	end
+	ColorPickerFrame:SetScript("OnHide", session.onHide)
+	ColorPickerFrame:SetFrameStrata("FULLSCREEN_DIALOG")
+	ColorPickerFrame:SetFrameLevel(owner:GetFrameLevel() + 10)
+	ColorPickerFrame:SetClampedToScreen(true)
+	ColorPickerFrame:SetupColorPickerAndShow({
+		swatchFunc = session.swatchFunc,
+		cancelFunc = session.cancelFunc,
+		r = r, g = g, b = b
+	})
+end
+
+function PanelPrototype:CreateColorSelect(title, CallbackFn, ResetFn)
+	local colorSelect = CreateFrame("Button", "DBM_GUI_Option_" .. self:GetNewID(), self.frame)
+	colorSelect:SetSize(100, 24)
+	colorSelect.myheight = ResetFn and 40 or 24
+	colorSelect.r = 0
+	colorSelect.g = 0
+	colorSelect.b = 0
+	colorSelect.pickerGeneration = 0
+
+	local swatch = colorSelect:CreateTexture(nil, "OVERLAY")
+	swatch:SetSize(18, 18)
+	swatch:SetTexture(130939) -- "Interface\\ChatFrame\\ChatFrameColorSwatch"
+	swatch:SetPoint("LEFT")
+
+	local swatchBg = colorSelect:CreateTexture(nil, "BACKGROUND")
+	swatchBg:SetSize(16, 16)
+	swatchBg:SetColorTexture(1, 1, 1)
+	swatchBg:SetPoint("CENTER", swatch)
+
+	local text = colorSelect:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+	text:SetText(title)
+	text:SetJustifyH("LEFT")
+	text:SetHeight(24)
+	text:SetTextColor(1, 1, 1)
+	text:SetPoint("LEFT", swatch, "RIGHT", 2, 0)
+	text:SetPoint("RIGHT")
+
+	if ResetFn then
+		local resetBtn = CreateFrame("Button", "DBM_GUI_Option_" .. self:GetNewID(), colorSelect, "UIPanelButtonTemplate")
+		resetBtn:SetPoint("TOPLEFT", swatch, "BOTTOMLEFT", 0, -5)
+		resetBtn:SetSize(64, 12)
+		resetBtn:SetText(L.Reset)
+		resetBtn:SetNormalFontObject(GameFontNormalSmall)
+		resetBtn:SetHighlightFontObject(GameFontNormalSmall)
+		resetBtn:SetScript("OnClick", function()
+			ResetFn(colorSelect)
+		end)
+	end
+
+	colorSelect.SetColorRGB = function(self, r, g, b, save)
+		self.pickerGeneration = self.pickerGeneration + 1
+		colorSelect.r = r
+		colorSelect.g = g
+		colorSelect.b = b
+		swatch:SetVertexColor(r, g, b)
+		if save then
+			CallbackFn(colorSelect, r, g, b)
+		end
+	end
+	colorSelect.GetColorRGB = function()
+		return ColorPickerFrame:GetColorRGB()
+	end
+	local colorCallback = function(self, r, g, b)
+		if r == self.r and g == self.g and b == self.b then
+			return
+		end
+		self:SetColorRGB(r, g, b)
+		CallbackFn(self, r, g, b)
+	end
+	colorSelect:SetScript("OnClick", function(self)
+		local r1, g1, b1 = self.r, self.g, self.b
+		self.pickerGeneration = self.pickerGeneration + 1
+		local generation = self.pickerGeneration
+		local function applyColor(r, g, b)
+			colorCallback(self, r, g, b)
+			generation = self.pickerGeneration
+		end
+		showColorPicker(self, r1, g1, b1, applyColor, function()
+			applyColor(r1, g1, b1)
+		end, function()
+			return generation == self.pickerGeneration
+		end)
+	end)
+	colorSelect:SetScript("OnHide", hideColorPicker)
+
+	self:SetLastObj(colorSelect)
+	return colorSelect
+end
+
+local timerColorEditor
+
+local function hideTimerColorEditor(owner)
+	if timerColorEditor and timerColorEditor.owner == owner then
+		timerColorEditor:Hide()
+	end
+end
+
+local function showTimerColorEditor(owner, value, apply, cancel, isCurrent)
+	if not timerColorEditor then
+		---@class DBMTimerColorEditor: Frame, TooltipBorderBackdropTemplate
+		local editor = CreateFrame("Frame", nil, UIParent, "TooltipBorderBackdropTemplate")
+		timerColorEditor = editor
+		editor:SetSize(340, 160)
+		editor:SetPoint("CENTER")
+		editor:SetFrameStrata("DIALOG")
+		editor:SetClampedToScreen(true)
+		editor:EnableMouse(true)
+		editor:SetBackdropColor(0.05, 0.05, 0.05, 1)
+		local panel = setmetatable({frame = editor}, {__index = PanelPrototype})
+		local title = panel:CreateText(L.BossModTColor .. " - " .. L.ColorCustom, 300, false)
+		title:SetPoint("TOPLEFT", 20, -16)
+		local function changed()
+			if editor.isCurrent() then
+				editor.value = {
+					r = editor.startColor.r, g = editor.startColor.g, b = editor.startColor.b,
+					endColor = {r = editor.endColor.r, g = editor.endColor.g, b = editor.endColor.b}
+				}
+				editor.apply(editor.value)
+			end
+		end
+		editor.startColor = panel:CreateColorSelect(L.BarStartColor, changed)
+		editor.startColor:SetSize(300, 24)
+		editor.startColor:SetPoint("TOPLEFT", 20, -48)
+		editor.endColor = panel:CreateColorSelect(L.BarEndColor, changed)
+		editor.endColor:SetSize(300, 24)
+		editor.endColor:SetPoint("TOPLEFT", 20, -80)
+		for _, control in ipairs({editor.startColor, editor.endColor}) do
+			control:SetScript("OnClick", function(self)
+				if not editor.isCurrent() then return end
+				local previous = editor.value
+				local r, g, b = self.r, self.g, self.b
+				showColorPicker(self, r, g, b, function(red, green, blue)
+					self:SetColorRGB(red, green, blue)
+					changed()
+				end, function()
+					self:SetColorRGB(r, g, b)
+					editor.value = previous
+					editor.apply(previous)
+				end, function()
+					return editor.isCurrent and editor.isCurrent()
+				end)
+			end)
+		end
+		local okay = panel:CreateButton(OKAY, 120, 22, function() editor:Hide() end)
+		okay:SetPoint("BOTTOMLEFT", 30, 16)
+		local cancelButton = panel:CreateButton(CANCEL, 120, 22, function()
+			if editor.isCurrent() then editor.cancel() end
+			editor:Hide()
+		end)
+		cancelButton:SetPoint("BOTTOMRIGHT", -30, 16)
+		editor:SetScript("OnHide", function()
+			hideColorPicker(editor.startColor)
+			hideColorPicker(editor.endColor)
+			editor.owner = nil
+			editor.value, editor.apply, editor.cancel, editor.isCurrent = nil, nil, nil, nil
+		end)
+	end
+	local editor = timerColorEditor
+	editor:Hide()
+	editor.owner, editor.apply, editor.cancel, editor.isCurrent = owner, apply, cancel, isCurrent
+	editor.value = value
+	editor:SetFrameLevel(owner:GetFrameLevel() + 10)
+	editor.startColor:SetColorRGB(DBT:GetColorForType(value))
+	editor.endColor:SetColorRGB(DBT:GetColorForType(value, true))
+	editor:Show()
+end
+
+function PanelPrototype:CreateSlider(text, low, high, step, width, value, callbackFn)
+	value = value or 0
+	local function NormalizeSliderValue(newValue)
+		newValue = tonumber(newValue) or low
+		if step and step > 0 and step == mfloor(step) then
+			newValue = mfloor((newValue - low) / step + 0.5) * step + low
+		end
+		return mmin(mmax(newValue, low), high)
+	end
+
+	value = NormalizeSliderValue(value)
+
+	local function UpdateSliderText(self)
+		self.editbox:SetText(mfloor((self.value or 0) * 100 + 0.5) / 100)
+	end
+
+	---@class DBMPanelSlider: Slider, BackdropTemplate
+	local slider = CreateFrame("Slider", "DBM_GUI_Option_" .. self:GetNewID(), self.frame, "BackdropTemplate")
+	slider.mytype = "slider"
+	slider.myheight = 60
+	slider:SetOrientation("HORIZONTAL")
+	slider:SetHeight(15)
+	slider:SetWidth(width or 180)
+	slider:SetHitRectInsets(0, 0, -10, 0)
+	slider:SetBackdrop({
+		bgFile = "Interface\\Buttons\\UI-SliderBar-Background",
+		edgeFile = "Interface\\Buttons\\UI-SliderBar-Border",
+		tile = true,
+		tileSize = 8,
+		edgeSize = 8,
+		insets = { left = 3, right = 3, top = 6, bottom = 6 }
+	})
+	slider:SetThumbTexture("Interface\\Buttons\\UI-SliderBar-Button-Horizontal")
+	slider:SetMinMaxValues(low, high)
+	slider:SetValueStep(step)
+	slider:SetScript("OnValueChanged", function(self, newValue)
+		if not self.isSetup then
+			return
+		end
+
+		newValue = NormalizeSliderValue(newValue)
+		if newValue ~= self.value then
+			self.value = newValue
+			self:SetValue(newValue)
+			callbackFn(newValue)
+		end
+		if self.value then
+			UpdateSliderText(self)
+		end
+	end)
+
+	local sliderText = slider:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
+	sliderText:SetPoint("BOTTOM", slider, "TOP")
+	sliderText:SetText(parseDescription(text, true))
+	slider.textFrame = sliderText
+
+	local lowText = slider:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+	lowText:SetPoint("TOPLEFT", slider, "BOTTOMLEFT", 2, 3)
+	lowText:SetText(low)
+
+	local highText = slider:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+	highText:SetPoint("TOPRIGHT", slider, "BOTTOMRIGHT", -2, 3)
+	highText:SetText(high)
+
+	local editbox = CreateFrame("EditBox", nil, slider, "InputBoxVisualTemplate")
+	editbox:SetAutoFocus(false)
+	editbox:SetJustifyH("CENTER")
+	editbox:SetPoint("TOP", slider, "BOTTOM", 0, -1)
+	editbox:SetHeight(14)
+	editbox:SetWidth(40)
+	editbox:SetTextInsets(0, 3, 0, 0)
+	editbox:SetScript("OnEscapePressed", function(self)
+		self:ClearFocus()
+	end)
+	editbox:SetScript("OnEnterPressed", function(self)
+		local value = tonumber(self:GetText())
+		if value then
+			slider:SetValue(value)
+			self:ClearFocus()
+		end
+	end)
+	slider.editbox = editbox
+
+	-- Reconcile visuals without invoking option writes or test previews.
+	function slider:SetValueSilent(newValue)
+		self.value = NormalizeSliderValue(newValue)
+		self:SetValue(self.value)
+		UpdateSliderText(self)
+	end
+
+	slider:SetValue(value)
+	slider.value = value
+	UpdateSliderText(slider)
+	slider.isSetup = true
+
+	self:SetLastObj(slider)
+	return slider
+end
+
+function PanelPrototype:CreateFontDropdown(title, vartype, var, CallbackFn, width, height, parent, overrideText)
+	local fontFlags = {
+		{ text = L.Outline, value = "OUTLINE", flag = true },
+		{ text = L.ThickOutline, value = "THICKOUTLINE", flag = true },
+		{ text = L.Monochrome, value = "MONOCHROME", flag = true },
+		{ text = L.Slug, value = "SLUG", flag = true },
+	}
+	local function GetOptions()
+		if vartype == "DBM" then
+			return DBM.Options[var]
+		elseif vartype == "DBT" then
+			return DBT.Options[var]
+		elseif type(vartype) == "table" and vartype.Options then
+			return vartype.Options[var]
+		end
+	end
+	local function GetSelectedFlags()
+		local selected = {}
+		local currentValue = GetOptions()
+		if type(currentValue) ~= "string" or DBM:IsNoneValue(currentValue) then
+			return selected
+		end
+		for flag in currentValue:gmatch("[^,]+") do
+			selected[flag] = true
+		end
+		return selected
+	end
+	local function SerializeSelectedFlags(selected)
+		local flags = {}
+		if selected.MONOCHROME then
+			tinsert(flags, "MONOCHROME")
+		end
+		if selected.OUTLINE then
+			tinsert(flags, "OUTLINE")
+		elseif selected.THICKOUTLINE then
+			tinsert(flags, "THICKOUTLINE")
+		end
+		if selected.SLUG then
+			tinsert(flags, "SLUG")
+		end
+		return #flags > 0 and table.concat(flags, ",") or "None"
+	end
+	local function GetDisplayText()
+		local selected = GetSelectedFlags()
+		local labels = {}
+		for _, flag in ipairs(fontFlags) do
+			if selected[flag.value] then
+				tinsert(labels, flag.text)
+			end
+		end
+		return #labels > 0 and table.concat(labels, ", ") or L.None
+	end
+	local dropdown
+	local function UpdateDisplayText()
+		local displayText = GetDisplayText()
+		dropdown.text = displayText
+		if dropdown.OverrideText then
+			dropdown:OverrideText(displayText)
+		end
+	end
+	dropdown = self:CreateDropdown(title, fontFlags, nil, nil, function(value)
+		local selected = GetSelectedFlags()
+		selected[value] = not selected[value]
+		if value == "OUTLINE" and selected.OUTLINE then
+			selected.THICKOUTLINE = nil
+		elseif value == "THICKOUTLINE" and selected.THICKOUTLINE then
+			selected.OUTLINE = nil
+		end
+		local newValue = SerializeSelectedFlags(selected)
+		if CallbackFn then
+			CallbackFn(newValue)
+		end
+		UpdateDisplayText()
+	end, width, height, parent, overrideText, "checkbox")
+	dropdown:IsSelectedCallback(function(_, v)
+		return GetSelectedFlags()[v.value] or false
+	end)
+	local SetSelectedValue = dropdown.SetSelectedValue
+	function dropdown:SetSelectedValue(selected)
+		SetSelectedValue(self, selected)
+		UpdateDisplayText()
+	end
+	dropdown:SetScript("OnShow", UpdateDisplayText)
+	---@diagnostic disable-next-line: undefined-field
+	dropdown:GenerateMenu()
+	UpdateDisplayText()
+	return dropdown
+end
+
+function PanelPrototype:CreateScrollingMessageFrame(width, height, _, fading, fontobject)
+	---@class DBMScrollingMessageFrame: ScrollFrame, MessageFrame, FontString
+	---@diagnostic disable-next-line:assign-type-mismatch
+	local scroll = CreateFrame("ScrollingMessageFrame", "DBM_GUI_Option_" .. self:GetNewID(), self.frame)
+	scroll.mytype = "scroll"
+	scroll:SetSize(width or 200, height or 150)
+	scroll:SetJustifyH("LEFT")
+	scroll:SetFading(fading or false)
+	scroll:SetFontObject(fontobject or "GameFontNormal")
+	scroll:SetMaxLines(2000)
+	scroll:EnableMouse(true)
+	scroll:EnableMouseWheel(true)
+	scroll:SetScript("OnMouseWheel", function(self, delta)
+		if delta == 1 then
+			self:ScrollUp()
+		elseif delta == -1 then
+			self:ScrollDown()
+		end
+	end)
+	self:SetLastObj(scroll)
+	return scroll
+end
+
+function PanelPrototype:CreateEditBox(text, value, width, height)
+	---@class DBMEditBox: EditBox
+	---@field myheight number
+	local textbox = CreateFrame("EditBox", "DBM_GUI_Option_" .. self:GetNewID(), self.frame, "BackdropTemplate,InputBoxTemplate")
+	textbox.mytype = "textbox"
+	textbox:SetSize(width or 60, height or 20)
+	textbox:SetAutoFocus(false)
+	textbox:SetScript("OnEscapePressed", function(self)
+		self:ClearFocus()
+	end)
+	textbox:SetScript("OnTabPressed", function(self)
+		self:ClearFocus()
+	end)
+	textbox:SetText(value)
+	local textboxText = textbox:CreateFontString("$parentText", "BACKGROUND", "GameFontNormalSmall")
+	textboxText:SetPoint("TOPLEFT", textbox, "TOPLEFT", -4, 14)
+	textboxText:SetText(text)
+	self:SetLastObj(textbox)
+	return textbox
+end
+
+function PanelPrototype:CreateLine(text, extraWidth)
+	---@class DBMPanelLine: Frame
+	local line = CreateFrame("Frame", "DBM_GUI_Option_" .. self:GetNewID(), self.frame)
+	line:SetSize(self.frame:GetWidth() - 20, 20)
+	if select("#", self.frame:GetChildren()) == 2 then
+		line:SetPoint("TOPLEFT", self.frame, 10, -12)
+	else
+		line:SetPoint("TOPLEFT", select(-2, self.frame:GetChildren()) or self.frame, "BOTTOMLEFT", 0, -12)
+	end
+	line.myheight = 20
+	line.mytype = "line"
+	line.extraWidth = extraWidth
+	local linetext = line:CreateFontString("$parentText", "ARTWORK", "GameFontNormal")
+	linetext:SetPoint("TOPLEFT", line, "TOPLEFT")
+	linetext:SetJustifyH("LEFT")
+	linetext:SetHeight(18)
+	linetext:SetTextColor(0.67, 0.83, 0.48)
+	linetext:SetText(text and parseDescription(text) or "")
+	local linebg = line:CreateTexture("$parentBG")
+	linebg:SetTexture(137056) -- "Interface\\Tooltips\\UI-Tooltip-Background"
+	linebg:SetSize(self.frame:GetWidth() - linetext:GetWidth() - 25, 2)
+	linebg:SetPoint("RIGHT", line, "RIGHT", 0, 0)
+	self:SetLastObj(line)
+	return line
+end
+
+do
+	local currActiveOwner
+	local updateFrame = CreateFrame("Frame")
+
+	local function stopTooltip(owner)
+		if currActiveOwner ~= owner then return end
+		currActiveOwner = nil
+		updateFrame:SetScript("OnUpdate", nil)
+		local button = owner:GetParent()
+		if button.fakeHighlight then
+			button.fakeHighlight = nil
+			button:UnlockHighlight()
+		end
+		if GameTooltip:IsOwned(owner) then
+			GameTooltip:Hide()
+		end
+	end
+
+	local function MixinCountTable(baseTable)
+		local result = baseTable
+		for _, count in pairs(DBM:GetCountSounds()) do
+			tinsert(result, {
+				text	= count.text,
+				value	= count.path
+			})
+		end
+		return result
+	end
+
+	local sounds = DBM_GUI:MixinSharedMedia3("sound", {
+		-- Inject DBMs custom media that's not available to LibSharedMedia because I haven't added it yet
+		--{ text = "AirHorn (DBM)", value = "Interface\\AddOns\\DBM-Core\\sounds\\AirHorn.ogg" },
+		{ text = "Algalon: Beware!", value = isRetail and 543587 or "Interface\\AddOns\\DBM-Core\\sounds\\ClassicSupport\\UR_Algalon_BHole01.ogg" },
+		{ text = "BB Wolf: Run Away", value = not isClassic and 552035 or "Interface\\AddOns\\DBM-Core\\sounds\\ClassicSupport\\HoodWolfTransformPlayer01.ogg" },
+		{ text = "Illidan: Not Prepared", value = not isClassic and 552503 or "Interface\\AddOns\\DBM-Core\\sounds\\ClassicSupport\\BLACK_Illidan_04.ogg" },
+		{ text = "Illidan: Not Prepared2", value = isRetail and 1412178 or "Interface\\AddOns\\DBM-Core\\sounds\\ClassicSupport\\VO_703_Illidan_Stormrage_03.ogg" },
+		{ text = "Kil'Jaeden: Destruction", value = not isClassic and 553193 or "Interface\\AddOns\\DBM-Core\\sounds\\ClassicSupport\\KILJAEDEN02.ogg" },
+		{ text = "Loatheb: I see you", value = 554236 },
+		{ text = "Night Elf Bell", value = 566558 },
+		{ text = "PvP Flag", value = 569200 },
+	})
+	if isRetail then
+--		tinsert(sounds, { text = "Blizzard Raid Emote", value = 876098, sound = true })--TEMP, can't register media we're specifically muting
+		tinsert(sounds, { text = "Headless Horseman: Laugh", value = 551703, sound = true })
+		tinsert(sounds, { text = "Kaz'rogal: Marked", value = 553050, sound = true })
+		tinsert(sounds, { text = "Lady Malande: Flee", value = 553566, sound = true })
+		tinsert(sounds, { text = "Milhouse: Light You Up", value = 555337, sound = true })
+		tinsert(sounds, { text = "Void Reaver: Marked", value = 563787, sound = true })
+		tinsert(sounds, { text = "Yogg Saron: Laugh", value = 564859, sound = true })
+		if DBM:IsRetail() then
+			tinsert(sounds, { text = "Blizzard: Low", value = 7670699, sound = true })
+			tinsert(sounds, { text = "Blizzard: Medium", value = 7670701, sound = true })
+			tinsert(sounds, { text = "Blizzard: Critical", value = 7670697, sound = true })
+		end
+	end
+
+	local function specialWarningSounds()
+		return {
+			{ text = L.None, value = "None" },
+			{ text = L.SAOne, value = 1 },
+			{ text = L.SATwo, value = 2 },
+			{ text = L.SAThree, value = 3 },
+			{ text = L.SAFour, value = 4 },
+			{ text = L.VoiceOverrideSounds, children = sounds },
+			DBM_GUI:GetVoicePackSoundEntry()
+		}
+	end
+
+	local function RGBPercToHex(r, g, b)
+		r = r <= 1 and r >= 0 and r or 0
+		g = g <= 1 and g >= 0 and g or 0
+		b = b <= 1 and b >= 0 and b or 0
+		return string.format("%02x%02x%02x", r*255, g*255, b*255)
+	end
+
+	local function createObjectColorDropdown(panel, button, mod, modvar, isTimer)
+		local option = modvar .. (isTimer and "TColor" or "Color")
+		local announce
+		if not isTimer then
+			for _, object in ipairs(mod.announces) do
+				if object.option == modvar then announce = object; break end
+			end
+		end
+		local function getRGB(value)
+			if isTimer then
+				return DBT:GetColorForType(value, true)
+			elseif type(value) == "table" then
+				return value.r, value.g, value.b
+			end
+			local color = DBM.Options.WarningColors[value] or announce and announce.color
+			if color then return color.r, color.g, color.b end
+			return unpack(DBM.Options.SpecialWarningFontCol)
+		end
+		local function entry(text, value, r, g, b)
+			return {text = "|cff" .. RGBPercToHex(r, g, b) .. text .. "|r", value = value}
+		end
+		local function values()
+			local entries = {}
+			if isTimer then
+				local labels = {L.ColorDropGeneric, L.ColorDrop1, L.ColorDrop2, L.ColorDrop3, L.ColorDrop4, L.ColorDrop5, L.ColorDrop6, L.CDDImportant1, L.CDDImportant2}
+				local defaultColor = mod.DefaultOptions[option] or 0
+				tinsert(entries, entry(DEFAULT .. ": " .. labels[defaultColor + 1], "default", getRGB(defaultColor)))
+				for i, label in ipairs(labels) do
+					tinsert(entries, entry(label, i - 1, getRGB(i - 1)))
+				end
+			else
+				tinsert(entries, entry(DEFAULT, 0, getRGB(0)))
+				for i = 1, 4 do
+					tinsert(entries, entry(L["RaidWarnColor_" .. i], i, getRGB(i)))
+				end
+			end
+			tinsert(entries, entry(L.ColorCustom, "custom", getRGB(mod.Options[option])))
+			return entries
+		end
+		local dropdown
+		local function selectedValue()
+			local value = mod.Options[option]
+			if type(value) == "table" then return "custom" end
+			if isTimer and value == (mod.DefaultOptions[option] or 0) then return "default" end
+			return value
+		end
+		local function refreshSelection()
+			dropdown:SetSelectedValue(selectedValue())
+		end
+		dropdown = panel:CreateDropdown(nil, values, nil, nil, function(value)
+			hideColorPicker(dropdown)
+			hideTimerColorEditor(dropdown)
+			if value ~= "custom" then
+				mod.Options[option] = value == "default" and (mod.DefaultOptions[option] or 0) or value
+				refreshSelection()
+				return
+			end
+			local options = mod.Options
+			local original, current = options[option], options[option]
+			local globalOptions, barOptions = DBM.Options, DBT.Options
+			local function apply(color)
+				current = color
+				options[option] = current
+				refreshSelection()
+			end
+			local function cancel()
+				options[option] = original
+				refreshSelection()
+			end
+			local function isCurrent()
+				return mod.Options == options and options[option] == current
+					and DBM.Options == globalOptions and DBT.Options == barOptions
+			end
+			if isTimer then
+				showTimerColorEditor(dropdown, original, apply, cancel, isCurrent)
+			else
+				local r, g, b = getRGB(original)
+				showColorPicker(dropdown, r, g, b, function(red, green, blue)
+					apply({r = red, g = green, b = blue})
+				end, cancel, isCurrent)
+			end
+		end, 70, nil, button, isTimer and L.BossModTColor or L.BossModColor)
+		dropdown:IsSelectedCallback(function(_, v)
+			return v.value == selectedValue()
+		end)
+		dropdown:SetScript("OnShow", refreshSelection)
+		dropdown:SetScript("OnHide", function(self)
+			hideColorPicker(self)
+			hideTimerColorEditor(self)
+		end)
+		dropdown.myheight = 0
+		return dropdown
+	end
+	local cvoice = MixinCountTable({
+		{ text = L.None, value = 0 },
+		{ text = L.CVoiceOne, value = 1 },
+		{ text = L.CVoiceTwo, value = 2 },
+		{ text = L.CVoiceThree, value = 3 }
+	})
+
+	function PanelPrototype:CreateCheckButton(name, autoplace, _, dbmvar, dbtvar, mod, modvar, globalvar, isTimer)
+		if not name then
+			error("CreateCheckButton: name must not be nil")
+		end
+		if type(name) == "number" then
+			error("CreateCheckButton: error: expected string, received number. You probably called mod:NewTimer(optionId) with a spell id." .. name)
+		end
+		---@class DBMCheckButton: CheckButton
+		local button = CreateFrame("CheckButton", "DBM_GUI_Option_" .. self:GetNewID(), self.frame, "OptionsBaseCheckButtonTemplate")
+		button:SetHitRectInsets(0, 0, 0, 0)
+		button.myheight = 30
+		button.mytype = "checkbutton"
+		if autoplace then
+			local x = self:GetLastObj()
+			if x.myheight then
+				button:SetPoint("TOPLEFT", x, "TOPLEFT", 0, -x.myheight)
+			else
+				button:SetPoint("TOPLEFT", 10, -12)
+			end
+		end
+		button.SetPointOld = button.SetPoint
+		button.SetPoint = function(...)
+			button.customPoint = true
+			button.myheight = 0
+			button.SetPointOld(...)
+		end
+		local desc, noteSpellName = parseDescription(name, true)
+		local frame, frame2
+		if modvar then -- Special warning, has modvar for sound and note
+			if isTimer then
+				frame = createObjectColorDropdown(self, button, mod, modvar, true)
+				frame.myheight = 0
+				frame2 = self:CreateDropdown(nil, cvoice, mod, modvar .. "CVoice", function(value)
+					mod.Options[modvar.."CVoice"] = value
+					if type(value) == "string" then
+						DBM:PlayCountSound(1, nil, value)
+					elseif value > 0 then
+						DBM:PlayCountSound(1, value == 3 and DBM.Options.CountdownVoice3 or value == 2 and DBM.Options.CountdownVoice2 or DBM.Options.CountdownVoice)
+					end
+				end, nil, nil, button, L.BossModCVoice)
+				frame2.myheight = 0
+				-- Old dropdown hacks
+				local isNewDropdown = frame.mytype == "dropdown2"
+				frame:SetPoint("LEFT", button, "RIGHT", isNewDropdown and 2 or -20, 2)
+				frame2:SetPoint("LEFT", frame, "RIGHT", isNewDropdown and 4 or 18, 0)
+			elseif mod.Options[modvar .. "SWSound"] ~= nil then
+				local colorDropdown
+				if mod.Options[modvar .. "Color"] ~= nil then
+					colorDropdown = createObjectColorDropdown(self, button, mod, modvar)
+					colorDropdown:SetPoint("LEFT", button, "RIGHT", 2, 0)
+				end
+				frame = self:CreateDropdown(nil, specialWarningSounds, mod, modvar .. "SWSound", function(value)
+					if modvar:match("^PrivateAuraSound%d+$") then
+						local optionId = tonumber(modvar:match("^PrivateAuraSound(%d+)$"))
+						if InCombatLockdown() then
+							DBM:AddMsg(L.PrivateAuraSoundCombatLockdown, nil, true)
+							frame:SetSelectedValue(mod.Options[modvar .. "SWSound"])
+							return
+						end
+						mod.Options[modvar .. "SWSound"] = value
+						if optionId then
+							mod:RefreshAuraSound(optionId)
+						end
+						DBM:PlaySpecialWarningSound(value, true)
+						return
+					end
+					mod.Options[modvar .. "SWSound"] = value
+					DBM:PlaySpecialWarningSound(value, true)
+				end, nil, nil, button, L.BossModSWSound)
+				frame.noSoundOnSelect = true
+				frame:IsSelectedCallback(function(self, entry) return entry.value == self.value end)
+				frame:ClearAllPoints()
+				frame:SetPoint("LEFT", colorDropdown or button, "RIGHT", 2, 0)
+				if mod.Options[modvar .. "SWNote"] then -- Mod has note, insert note hack
+					---@class DBMPanelButtonWithNote: Button
+					frame2 = CreateFrame("Button", "DBM_GUI_Option_" .. self:GetNewID(), self.frame, "UIPanelButtonTemplate")
+					frame2:SetPoint("LEFT", frame, "RIGHT", 2, 1)
+					frame2:SetSize(25, 25)
+					frame2:SetText("|TInterface/FriendsFrame/UI-FriendsFrame-Note.blp:14:0:2:-1|t")
+					frame2.mytype = "button"
+					frame2.myheight = 0
+					frame2:SetScript("OnClick", function()
+						DBM:ShowNoteEditor(mod, modvar, noteSpellName)
+					end)
+				end
+			else
+				frame = createObjectColorDropdown(self, button, mod, modvar)
+				frame:SetPoint("LEFT", button, "RIGHT", 2, 0)
+			end
+			frame.myheight = 0
+			if frame2 then
+				frame2.myheight = 0
+			end
+		end
+		local buttonText
+		if desc then -- Switch all checkbutton frame to SimpleHTML frame (auto wrap)
+			buttonText = CreateFrame("SimpleHTML", "$parentText", button)
+			buttonText:SetFontObject("p", GameFontNormal)
+			buttonText:SetHyperlinksEnabled(true)
+			buttonText:SetScript("OnHyperlinkEnter", function(self, data)
+				if not self:IsVisible() then return end
+				local linkType = strsplit(":", data)
+				if currActiveOwner then stopTooltip(currActiveOwner) end
+				if linkType == "http" then
+					return
+				end
+				currActiveOwner = self
+				GameTooltip:SetOwner(self, "ANCHOR_NONE")
+				if linkType ~= "journal" then
+					GameTooltip:SetHyperlink(data)
+				else -- "journal:contentType:contentID:difficulty"
+					local _, contentType, contentID = strsplit(":", data)
+					if contentType == "2" then
+						local spellName, spellDesc = DBM:EJ_GetSectionInfo(tonumber(contentID))
+						GameTooltip:AddLine(spellName or CL.UNKNOWN, 255, 255, 255, false)
+						GameTooltip:AddLine(" ")
+						GameTooltip:AddLine(spellDesc or CL.UNKNOWN, NORMAL_FONT_COLOR.r, NORMAL_FONT_COLOR.g, NORMAL_FONT_COLOR.b, true)
+					end
+				end
+				GameTooltip:Show()
+				if currActiveOwner ~= self then return end
+				local button = self:GetParent()
+				updateFrame:SetScript("OnUpdate", function()
+					if currActiveOwner ~= self then return end
+					if not self:IsVisible() or not GameTooltip:IsShown() or not GameTooltip:IsOwned(self) then
+						stopTooltip(self)
+						return
+					end
+					local inHitBox = GetCursorPosition() - button:GetCenter() < -100
+					if button.fakeHighlight and not inHitBox then
+						button:UnlockHighlight()
+						button.fakeHighlight = nil
+					elseif not button.fakeHighlight and inHitBox then
+						button:LockHighlight()
+						button.fakeHighlight = true
+					end
+					local x, y = GetCursorPosition()
+					local scale = UIParent:GetEffectiveScale()
+					GameTooltip:ClearAllPoints()
+					GameTooltip:SetPoint("BOTTOMLEFT", nil, "BOTTOMLEFT", (x / scale) + 5, (y / scale) + 2)
+				end)
+				if GetCursorPosition() - self:GetParent():GetCenter() < -100 then
+					self:GetParent().fakeHighlight = true
+					self:GetParent():LockHighlight()
+				end
+			end)
+			buttonText:SetScript("OnHyperlinkLeave", stopTooltip)
+			buttonText:SetScript("OnHide", stopTooltip)
+			desc = "<html><body><p>" .. desc .. "</p></body></html>"
+		else
+			buttonText = button:CreateFontString("$parentText", "ARTWORK", "GameFontNormal")
+		end
+		button.textObj = buttonText
+		button.text = desc or CL.UNKNOWN
+		buttonText:SetJustifyH("p", "LEFT")
+		buttonText:ClearAllPoints()
+		buttonText:SetPoint("LEFT", frame2 or frame or button, "RIGHT", 2, 0)
+		buttonText:SetPoint("RIGHT", self.frame, -15, 0)
+		buttonText:SetText(button.text)
+		buttonText:SetSize(buttonText:GetWidth(), buttonText:GetContentHeight())
+		buttonText:SetText(button.text) -- SetText is called again, because SimpleHTML needs a refresh after sizing
+		button.myheight = mmax(buttonText:GetContentHeight() + 12, 30)
+		if dbmvar and DBM.Options[dbmvar] ~= nil then
+			button:SetScript("OnShow", function(self)
+				self:SetChecked(DBM.Options[dbmvar])
+			end)
+			button:SetScript("OnClick", function()
+				DBM.Options[dbmvar] = not DBM.Options[dbmvar]
+			end)
+		end
+		if dbtvar then
+			button:SetScript("OnShow", function(self)
+				self:SetChecked(DBT.Options[dbtvar])
+			end)
+			button:SetScript("OnClick", function()
+				DBT:SetOption(dbtvar, not DBT.Options[dbtvar])
+			end)
+		end
+		if globalvar and _G[globalvar] ~= nil then
+			button:SetScript("OnShow", function(self)
+				self:SetChecked(_G[globalvar])
+			end)
+			button:SetScript("OnClick", function()
+				_G[globalvar] = not _G[globalvar]
+			end)
+		end
+		self:SetLastObj(button)
+		return button
+	end
+end
+
+function PanelPrototype:CreateArea(name)
+	---@class DBMPanelArea: Frame, BackdropTemplate
+	local area = CreateFrame("Frame", "DBM_GUI_Option_" .. self:GetNewID(), self.frame, "TooltipBorderBackdropTemplate")
+	area.mytype = "area"
+	area:SetBackdropColor(0.15, 0.15, 0.15, 0.2)
+	area:SetBackdropBorderColor(0.4, 0.4, 0.4)
+	local title = area:CreateFontString("$parentTitle", "BACKGROUND", "GameFontHighlightSmall")
+	title:SetPoint("BOTTOMLEFT", area, "TOPLEFT", 5, 0)
+	title:SetText(parseDescription(name))
+	if select("#", self.frame:GetChildren()) == 1 then
+		area:SetPoint("TOPLEFT", self.frame, 5, -20)
+	else
+		area:SetPoint("TOPLEFT", select(-2, self.frame:GetChildren()) or self.frame, "BOTTOMLEFT", 0, -20)
+	end
+	self:SetLastObj(area)
+	return setmetatable({
+		frame	= area,
+		parent	= self
+	}, {
+		__index = PanelPrototype
+	})
+end
+
+local function handleWAKeyHyperlink(_, link)
+	local linkType, arg1, arg2, arg3 = strsplit(":", link)
+	if linkType == "addon" and arg1 == "DBM" and arg2 == "wacopy" then
+		DBM:ShowUpdateReminder(nil, nil, DBM_CORE_L.COPY_WA_DIALOG, arg3)
+	end
+end
+
+local function refreshCurrentViewingPanel()
+	local optionsFrame = _G["DBM_GUI_OptionsFrame"]
+	if DBM_GUI and DBM_GUI.currentViewing and optionsFrame and optionsFrame:IsShown() then
+		optionsFrame:DisplayFrame(DBM_GUI.currentViewing)
+	end
+end
+
+local function spellKeyMatchesObject(spellKey, objectSpellId)
+	if spellKey == nil or objectSpellId == nil then
+		return false
+	end
+	if spellKey == objectSpellId then
+		return true
+	end
+	if type(spellKey) == "string" then
+		local numericKey = tonumber(spellKey)
+		if numericKey and numericKey == objectSpellId then
+			return true
+		end
+		local ejId = tonumber(spellKey:match("^ej(%d+)$"))
+		if ejId and objectSpellId == -ejId then
+			return true
+		end
+		local atId = tonumber(spellKey:match("^at(%d+)$"))
+		if atId and objectSpellId == atId then
+			return true
+		end
+	elseif type(spellKey) == "number" and type(objectSpellId) == "string" then
+		local numericObjectSpell = tonumber(objectSpellId)
+		if numericObjectSpell and spellKey == numericObjectSpell then
+			return true
+		end
+	end
+	return false
+end
+
+local function getObjectSpellId(object)
+	if type(object) == "table" then
+		return object.spellId
+	end
+	return nil
+end
+
+local function findFirstTimerAndAnnounceForSpellKey(mod, spellKey, fallbackSpellKey)
+	if not mod or (spellKey == nil and fallbackSpellKey == nil) then
+		return nil, nil
+	end
+	local function matches(objectSpellId)
+		if spellKeyMatchesObject(spellKey, objectSpellId) then
+			return true
+		end
+		if fallbackSpellKey ~= nil and fallbackSpellKey ~= spellKey and spellKeyMatchesObject(fallbackSpellKey, objectSpellId) then
+			return true
+		end
+		return false
+	end
+	local timerObject
+	local timerList = mod.timers
+	if type(timerList) == "table" then
+		for _, object in ipairs(timerList) do
+			if matches(getObjectSpellId(object)) then
+				timerObject = object
+				break
+			end
+		end
+	end
+	local announceObject
+	local specAnnounceList = mod.specwarns
+	if type(specAnnounceList) == "table" then
+		for _, object in ipairs(specAnnounceList) do
+			if matches(getObjectSpellId(object)) then
+				if object.announceType ~= "blizztarget" and object.announceType ~= "blizzyou" then
+					announceObject = object
+					break
+				end
+			end
+		end
+	end
+	if not announceObject then--Didn't find preferred special announce, try to find regular one
+		local announceList = mod.announces
+		if type(announceList) == "table" then
+			for _, object in ipairs(announceList) do
+				if matches(getObjectSpellId(object)) then
+					announceObject = object
+					break
+				end
+			end
+		end
+	end
+	return timerObject, announceObject
+end
+
+local function triggerAbilityTestTimer(object)
+	if object and object.Start then
+		object:Start(5, 1)--short 5 second timer with a 1 count
+		return true
+	end
+	return false
+end
+
+local function triggerAbilityTestAnnounce(object)
+	if object and object.Show then
+		local show = object.ShowPreview or object.Show
+		if object.announceType == "gtfo" then
+			show(object)
+		else
+			show(object, 1)
+		end
+		if object.voiceFile and object.Play then
+			object:Play(object.voiceFile)
+		end
+		return true
+	end
+	return false
+end
+
+function PanelPrototype:CreateAbility(titleText, icon, spellID, isPrivate, renameSpellId, mod, runtimeSpellKey)
+	---@class DBMPanelAbility: Frame, BackdropTemplate
+	local area = CreateFrame("Frame", "DBM_GUI_Option_" .. self:GetNewID(), self.frame, "TooltipBorderBackdropTemplate")
+	area.mytype = "ability"
+	area.hidden = not DBM.Options.AutoExpandSpellGroups2
+	area:SetBackdropColor(0.15, 0.15, 0.15, 0.2)
+	area:SetBackdropBorderColor(0.4, 0.4, 0.4)
+	area:SetHyperlinksEnabled(true)
+	area:SetScript("OnHyperlinkClick", handleWAKeyHyperlink)
+	if select("#", self.frame:GetChildren()) == 1 then
+		area:SetPoint("TOPLEFT", self.frame, 5, -20)
+	else
+		area:SetPoint("TOPLEFT", select(-2, self.frame:GetChildren()) or self.frame, "BOTTOMLEFT", 0, -20)
+	end
+	area:SetPoint("RIGHT", self.frame)
+	local title = area:CreateFontString("$parentTitle", "BACKGROUND", "GameFontHighlightSmall")
+	local key = ""
+	if DBM.Options.ShowWAKeys and spellID then
+		key = DBM_CORE_L.WEAKAURA_KEY:format(spellID)
+	end
+	-- Search/index contract (important for GUI cache correctness):
+	-- 1) Keep search payload STATIC: original title + static numeric key only.
+	-- 2) NEVER include rename text here (renames are user-defined, volatile, and reused).
+	-- 3) Rendered title may include rename suffix for display, but search/cache must not.
+	local searchText = titleText
+	if renameSpellId and renameSpellId > 5 then
+		searchText = searchText .. " " .. tostring(renameSpellId)
+	elseif spellID then
+		searchText = searchText .. " " .. tostring(spellID)
+	end
+	area.searchText = searchText
+	local function setAbilityTitle(text)
+		if icon then
+			local markup = CreateTextureMarkup(icon, 0, 0, 16, 16, 0, 0, 0, 0, 0, 0)
+			if isPrivate then--Second icon for auras
+				local markuptwo = CreateTextureMarkup(132320, 0, 0, 18, 18, 0, 0, 0, 0, 0, 0)
+				title:SetText(markup .. ' ' .. text .. key .. " " .. markuptwo)
+			else
+				title:SetText(markup .. ' ' .. text .. key)
+			end
+		else
+			if isPrivate then--Still add icon for auras even if no spell icon
+				local markuptwo = CreateTextureMarkup(132320, 0, 0, 18, 18, 0, 0, 0, 0, 0, 0)
+				title:SetText(text .. key .. " " .. markuptwo)
+			else
+				title:SetText(text .. key)
+			end
+		end
+	end
+	local function getRenameDefaultText()
+		if renameSpellId == 123456 then
+			return L.GTFOAbilityTitle
+		end
+		return DBM:GetSpellName(renameSpellId) or tostring(renameSpellId)
+	end
+	local function getRenameDisplaySuffix()
+		if not renameSpellId or renameSpellId <= 5 then
+			return ""
+		end
+		local defaultText = getRenameDefaultText()
+		local effectiveText = DBM:GetRename(renameSpellId, defaultText) or defaultText
+		if effectiveText == defaultText then
+			return ""
+		end
+		return (DBM_CORE_L.RENAME):format(effectiveText)
+	end
+	setAbilityTitle(titleText .. getRenameDisplaySuffix())
+	title:ClearAllPoints()
+	title:SetPoint("BOTTOMLEFT", area, "TOPLEFT", 20, 0)
+	title:SetFontObject(GameFontNormal)
+	local hasRenamableObjects = false
+	if mod and (runtimeSpellKey ~= nil or renameSpellId ~= nil) then
+		local timerObject, announceObject = findFirstTimerAndAnnounceForSpellKey(mod, runtimeSpellKey, renameSpellId)
+		if timerObject or announceObject then
+			hasRenamableObjects = true
+		end
+	end
+	if renameSpellId and renameSpellId > 5 and hasRenamableObjects then
+		local function autoSizeInlineButton(button, minWidth)
+			local buttonText = _G[button:GetName() .. "Text"] or button:GetFontString()
+			if not buttonText then
+				return
+			end
+			button:SetWidth(mmax(minWidth or 0, buttonText:GetStringWidth() + 20))
+		end
+
+		local renameButton = CreateFrame("Button", area:GetName() .. "Rename", area, "UIPanelButtonTemplate")
+		renameButton:SetSize(58, 18)
+		renameButton:SetText(L.RenameSpellButton or "Rename")
+		autoSizeInlineButton(renameButton, 58)
+		renameButton:SetPoint("LEFT", title, "RIGHT", 8, 0)
+
+		local resetButton = CreateFrame("Button", area:GetName() .. "RenameReset", area, "UIPanelButtonTemplate")
+		resetButton:SetSize(46, 18)
+		resetButton:SetText(L.Reset)
+		autoSizeInlineButton(resetButton, 46)
+		resetButton:SetPoint("LEFT", renameButton, "RIGHT", 4, 0)
+
+		local testButton = CreateFrame("Button", area:GetName() .. "SpellTest", area, "UIPanelButtonTemplate")
+		testButton:SetSize(42, 18)
+		testButton:SetText(L.Test or "Test")
+		autoSizeInlineButton(testButton, 42)
+		testButton:SetPoint("LEFT", resetButton, "RIGHT", 4, 0)
+
+		testButton:SetScript("OnClick", function()
+			DBM_GUI:CollapseForPreview(5)
+			local context = abilityTestContextByFrame[area]
+			local timerObject, announceObject = findFirstTimerAndAnnounceForSpellKey(context and context.mod, context and context.spellKey, context and context.renameSpellId)
+			local timerTriggered = triggerAbilityTestTimer(timerObject)
+			local announceTriggered = triggerAbilityTestAnnounce(announceObject)
+			if not timerTriggered and not announceTriggered then
+				DBM:AddMsg((L.Test or "Test") .. ": no timer/announce object found for spell key " .. tostring(context and context.spellKey))
+			end
+		end)
+
+		local function getRenameOverrideValue()
+			local spellRenames = DBM.Options and type(DBM.Options.SpellRenames) == "table" and DBM.Options.SpellRenames
+			if not spellRenames then
+				return nil
+			end
+			local overrideValue = spellRenames[renameSpellId]
+			if overrideValue == nil then
+				overrideValue = spellRenames[tostring(renameSpellId)]
+			end
+			return overrideValue
+		end
+
+		local function updateRenameUI()
+			setAbilityTitle(titleText .. getRenameDisplaySuffix())
+			local overrideValue = getRenameOverrideValue()
+			local hasOverride = overrideValue ~= nil
+			if hasOverride then
+				resetButton:Enable()
+			else
+				resetButton:Disable()
+			end
+		end
+
+		renameButton:SetScript("OnClick", function()
+			local defaultText = getRenameDefaultText()
+			local overrideValue = getRenameOverrideValue()
+			local explicitClear = overrideValue == ""
+			local currentText = explicitClear and "" or (DBM:GetRename(renameSpellId, defaultText) or "")
+			DBM:ShowTextEditor((L.RenameSpellHeader or "Set custom name for %s"):format(defaultText), currentText, function(text)
+				DBM:SetRename(renameSpellId, text)
+				updateRenameUI()
+				refreshCurrentViewingPanel()
+			end)
+		end)
+
+		resetButton:SetScript("OnClick", function()
+			DBM:SetRename(renameSpellId, nil)
+			updateRenameUI()
+			refreshCurrentViewingPanel()
+		end)
+		resetButton:SetScript("OnShow", function(self)
+			updateRenameUI()
+		end)
+		updateRenameUI()
+	end
+	-- Button
+	---@class DBMPanelAbilityButton: Button
+	---@field toggle Button
+	---@field highlight Frame
+	local button = CreateFrame("Button", area:GetName() .. "Button", area, "OptionsListButtonTemplate")
+	button:ClearAllPoints()
+	button:SetPoint("LEFT", title, -15, 0)
+	button:Show()
+	button:SetSize(18, 18)
+	button:SetScript('OnClick', function() end)
+	button.toggle:SetNormalTexture(area.hidden and 130838 or 130821) -- "Interface\\Buttons\\UI-PlusButton-UP", "Interface\\Buttons\\UI-MinusButton-UP"
+	button.toggle:SetPushedTexture(area.hidden and 130836 or 130820) -- "Interface\\Buttons\\UI-PlusButton-DOWN", "Interface\\Buttons\\UI-MinusButton-DOWN"
+	button.toggle:Show()
+	button.highlight:Hide()
+	button.toggleFunc = function()
+		area.hidden = not area.hidden
+		button.toggle:SetNormalTexture(area.hidden and 130838 or 130821) -- "Interface\\Buttons\\UI-PlusButton-UP", "Interface\\Buttons\\UI-MinusButton-UP"
+		button.toggle:SetPushedTexture(area.hidden and 130836 or 130820) -- "Interface\\Buttons\\UI-PlusButton-DOWN", "Interface\\Buttons\\UI-MinusButton-DOWN"
+		_G["DBM_GUI_OptionsFrame"]:DisplayFrame(DBM_GUI.currentViewing)
+	end
+	--
+	self:SetLastObj(area)
+	return setmetatable({
+		frame	= area,
+		parent	= self
+	}, {
+		__index = PanelPrototype
+	})
+end
+
+---@return DBMPanel
+function DBM_GUI:CreateNewPanel(frameName, frameType, showSub, displayName, forceChildren, addonId, isSeason)
+	---@class DBMPanelFrame: Frame
+	local panel = CreateFrame("Frame", "DBM_GUI_Option_" .. self:GetNewID(), _G["DBM_GUI_OptionsFramePanelContainer"])
+	panel.mytype = "panel"
+	panel.ID = self:GetCurrentID()
+	local container = _G["DBM_GUI_OptionsFramePanelContainer"]
+	panel:SetSize(container:GetWidth(), container:GetHeight())
+	panel:SetPoint("TOPLEFT", "DBM_GUI_OptionsFramePanelContainer", "TOPLEFT")
+	panel.displayName = displayName or frameName
+	panel.showSub = showSub or showSub == nil
+	panel.modId = frameName
+	panel.addonId = addonId
+	panel.isSeason = isSeason
+	panel:Hide()
+	if frameType == "option" then
+		frameType = DBM_GUI.Enums.Tabs.CORE
+	elseif frameType == "RAID" then
+		frameType = DBM_GUI.Enums.Tabs.RAIDS
+	elseif frameType == "LAIR" then
+		frameType = DBM_GUI.Enums.Tabs.LAIRS
+	elseif frameType == "PARTY" then
+		frameType = DBM_GUI.Enums.Tabs.DUNGEONS
+	elseif frameType == "SCENARIO" then
+		frameType = DBM_GUI.Enums.Tabs.SCENARIOS
+	elseif frameType == "WORLDBOSS" then
+		frameType = DBM_GUI.Enums.Tabs.WORLD_BOSSES
+	elseif frameType == "tools" then
+		frameType = DBM_GUI.Enums.Tabs.TOOLS
+	else
+		frameType = DBM_GUI.Enums.Tabs.OTHER
+	end
+	panel.tab = frameType
+	---@diagnostic disable-next-line: undefined-field
+	self.tabs[frameType]:CreateCategory(panel, self and self.frame and self.frame.ID, forceChildren)
+	PanelPrototype:SetLastObj(panel)
+	tinsert(self.panels, {
+		frame	= panel,
+		parent	= self
+	})
+	panel.panelid = #self.panels
+	return setmetatable(self.panels[#self.panels], {
+		__index = PanelPrototype
+	})
+end

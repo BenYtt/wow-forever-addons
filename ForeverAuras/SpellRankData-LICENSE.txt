@@ -1,0 +1,11 @@
+Spell rank data attribution
+
+Data from talentsforever.com (https://talentsforever.com).
+Source: https://talentsforever.com/data.json
+Source generated: 2026-09-24
+Licensed under Creative Commons Attribution 4.0 International:
+https://creativecommons.org/licenses/by/4.0/
+
+Modified for ForeverAuras: retain beta spell IDs only; group by class and
+spell name, keeping named variants separate; omit tooltip text and other data.
+No endorsement by the source author or Blizzard is implied.

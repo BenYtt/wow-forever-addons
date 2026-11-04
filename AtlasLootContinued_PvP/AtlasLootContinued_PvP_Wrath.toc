@@ -1,0 +1,26 @@
+﻿## Interface: 30404
+## Author: Okrah, Lag
+## Version: 12902
+## Dependencies: AtlasLootContinued
+## LoadOnDemand: 1
+
+## Title: AtlasLoot Continued |cFF0099FF[PvP]|r
+## Title-deDE: AtlasLoot Continued |cFF0099FF[PvP]|r
+## Title-esES: AtlasLoot Continued |cFF0099FF[JcJ]|r
+## Title-frFR: AtlasLoot Continued |cFF0099FF[JcJ]|r
+## Notes: AtlasLoot loot tables from PvP
+## Notes-deDE: AtlasLoot Beuteverzeichnis für PvP
+## Notes-esES: AtlasLoot tablas de botín de JcJ
+## Notes-frFR: Tables de butin JcJ
+
+## X-Category: Map
+## X-License: GPL v2
+
+## X-AtlasLoot-LootModule: 1
+
+Locales\Locales.xml
+
+private.lua
+data.lua
+data-tbc.lua
+data-wrath.lua

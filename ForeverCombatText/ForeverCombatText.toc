@@ -1,0 +1,13 @@
+## Interface: 16001
+## Title: Forever Combat Text
+## Notes: Simple nameplate combat text with damage-school colors and a few useful options for WoW Forever beta.
+## Author: Morpster
+## X-License: All Rights Reserved
+## Version: 0.13.0
+## Category: Combat
+## IconTexture: Interface\AddOns\ForeverCombatText\logo.png
+## SavedVariables: ForeverCombatTextDB
+
+Nameplates.lua
+Core.lua
+Options.lua

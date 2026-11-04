@@ -1,0 +1,714 @@
+---@class DBMCoreNamespace
+local private = select(2, ...)
+
+---@class DBM
+local DBM = private:GetPrototype("DBM")
+
+---@class DBMKeystones
+local Keystones = {}
+DBM.Keystones = Keystones
+
+local tinsert, tsort, mmax, mfloor = table.insert, table.sort, math.max, math.floor
+
+local L = DBM_CORE_L
+local RAID_CLASS_COLORS = _G["CUSTOM_CLASS_COLORS"] or RAID_CLASS_COLORS-- for Phanx' Class Colors
+
+local LibStub = _G["LibStub"]
+local LibKeystone, LibSpec
+local LibKeystoneTable = {}
+if LibStub then
+	LibKeystone = LibStub("LibKeystone", true)
+	LibSpec = LibStub("LibSpecialization", true)
+end
+
+if not LibKeystone or not LibSpec then
+	DBM:AddMsg(L.UPDATE_REQUIRES_RELAUNCH)
+	return
+end
+
+local isPlayerRemix = PlayerIsTimerunning and PlayerIsTimerunning()
+
+local playerSpecs = {}
+do
+	local function UpdateSpec(specID, _, _, playerName)
+		playerSpecs[playerName] = specID
+	end
+	LibSpec.RegisterGroup(playerSpecs, UpdateSpec)
+	LibSpec.RegisterGuild(playerSpecs, UpdateSpec)
+end
+
+-- [ChallengeModeID] = {MapID, TeleportID, bgImage}
+local teleportMap = {
+	[161] = {1209, 159898, 1041999}, -- Skyreach
+	[198] = {1466, 424163, 1411855}, -- Darkheart Thicket
+	[199] = {1501, 424153, 1411853}, -- Black Rook Hold
+	[200] = {1477, 393764, 1498158}, -- Halls of Valor
+	[206] = {1458, 410078, 1450574}, -- Neltharion's Lair
+	[210] = {1571, 393766, 1498156}, -- Court of Stars
+	[227] = {1651, 373262, 1537283}, -- Return to Karazhan: Lower
+	[234] = {1651, 373262, 1537283}, -- Return to Karazhan: Upper
+	[239] = {1753, 1254551, 1718213}, -- Seat of the Triumvirate
+	[249] = {1762, 1286831, 2178269}, -- King's Rest
+	[250] = {1877, 1286828, 2178273}, -- Temple of Sethraliss
+	[378] = {2287, 354465, 3759908}, -- Halls of Atonement
+	[391] = {2441, 367416, 4182022}, -- Tazavesh: Streets of Wonder
+	[392] = {2441, 367416, 4182022}, -- Tazavesh: So'leah's Gambit
+	[399] = {2521, 393256, 4742927}, -- Ruby Life Pools
+	[402] = {2526, 393273, 4742929}, -- Algeth'ar Academy
+	[499] = {2649, 445444, 5912551}, -- Priority of the Sacred Flame
+	[503] = {2660, 445417, 5912546}, -- Ara-Kara, City of Echoes
+	[505] = {2662, 445414, 5912552}, -- The Dawnbreaker
+	[525] = {2773, 1216786, 6422412}, -- Operation Floodgate
+	[542] = {2830, 1237215, 7074042}, -- Eco-Dome Al'dani
+	[556] = {658, 1254555, 608210}, -- Pit of Saron
+	[557] = {2805, 1254400, 7464937}, -- Windrunner Spire
+	[558] = {585, 1254572, 608208}, -- Magister's Terrace
+	[559] = {2915, 1254563, 7570501}, -- Nexus-Point Xenas
+	[560] = {2874, 1254559, 7478529}, -- Maisara Caverns
+	[584] = {2859, 1286801, 7478528}, -- The Blinding Vale
+	[585] = {2923, 1286804, 7479110}, -- Voidscar Arena
+	[586] = {2825, 1286807, 7478530}, -- Den Of Nalorakk
+	[587] = {2813, 1286809, 7467175}, -- Murder Row
+	[588] = {2993, 1286812, 7956179}, -- Altar of Fangs
+}
+local teleports
+local function updateTeleports()
+	isPlayerRemix = PlayerIsTimerunning and PlayerIsTimerunning()
+	if isPlayerRemix then
+		teleports = {198, 199, 200, 206, 210, 227, 234}
+	end
+	teleports = C_ChallengeMode.GetMapTable()
+end
+updateTeleports()
+
+local partyKeystones, guildKeystones = {}, {}
+
+---@class DBMKeystonesFrame: DefaultPanelTemplate
+---@field CreateTab fun(self: DBMKeystonesFrame, title: string, OnShowFn: function): integer
+---@field ShowTab fun(self: DBMKeystonesFrame, tab: number)
+local frame = CreateFrame("Frame", "DBMKeystonesFrame", UIParent, "DefaultPanelTemplate")
+tinsert(_G["UISpecialFrames"], frame:GetName())
+frame:Hide()
+frame:SetSize(380, 300)
+frame:SetClampedToScreen(true)
+frame:SetPoint("LEFT")
+frame:SetFrameStrata("DIALOG")
+frame:SetMovable(true)
+frame:EnableMouse(true)
+frame:RegisterForDrag("LeftButton")
+frame:SetTitle(L.KEYSTONES_HEADER)
+frame:SetScript("OnHide", function()
+	LibKeystone.Unregister(LibKeystoneTable)
+end)
+frame:SetScript("OnDragStart", frame.StartMoving)
+frame:SetScript("OnDragStop", function(self)
+	self:StopMovingOrSizing()
+	local x, y = self:GetLeft(), -(GetScreenHeight() - self:GetTop())
+	self:ClearAllPoints()
+	self:SetPoint("TOPLEFT", x, y)
+	DBM.Options.KeystonesPosition = {'TOPLEFT', x, y}
+end)
+
+local closeBtn = CreateFrame("Button", "$parentClose", frame, "UIPanelCloseButtonDefaultAnchors")
+closeBtn:SetFrameLevel(frame.NineSlice:GetFrameLevel() + 10)
+
+frame.Bg:SetTexture("Interface\\FrameGeneral\\UI-Background-Rock")
+frame.Bg:SetColorTexture(0, 0, 0, 0.8)
+
+local scroll = CreateFrame("ScrollFrame", nil, frame, "ScrollFrameTemplate")
+scroll:SetPoint("TOPLEFT", frame, "TOPLEFT", 8, -30)
+scroll:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -24, 30)
+
+local child = CreateFrame("Frame", nil, scroll)
+scroll:SetScrollChild(child)
+child:SetSize(scroll:GetWidth(), scroll:GetHeight())
+child:SetPoint("LEFT")
+
+-- Frames handler
+local spareTextFrames, usedTextFrames = {}, {}
+local function WipeTextFrames()
+	for _frame in next, usedTextFrames do
+		if not _frame.IsSpare then
+			_frame.IsSpare = true
+			_frame:Hide()
+			_frame:ClearAttributes()
+			_frame:SetSize(20, 20)
+			_frame:SetScript('OnEnter', nil)
+			_frame.Text:SetText("")
+			_frame.Text:SetJustifyH("LEFT")
+			_frame.Text:SetFontObject(GameFontNormal)
+			_frame.Text:SetTextScale(1)
+			_frame.Text:SetTextColor(NORMAL_FONT_COLOR:GetRGB())
+			_frame.Background:Hide()
+			_frame:ClearAllPoints()
+			spareTextFrames[#spareTextFrames + 1] = _frame
+		end
+	end
+end
+local function GetTextFrame()
+	---@class DBMKeystonesTextFrame: Button
+	---@field IsSpare boolean
+	local _frame = spareTextFrames[#spareTextFrames]
+	if _frame then
+		spareTextFrames[#spareTextFrames] = nil
+		_frame.IsSpare = false
+		_frame:Show()
+		return _frame
+	end
+	---@class DBMKeystonesTextFrame
+	_frame = CreateFrame("Button", nil, child, "InsecureActionButtonTemplate")
+	_frame.IsSpare = false
+	_frame:SetSize(20, 20)
+	_frame:RegisterForClicks("AnyDown", "AnyUp")
+
+	local text = _frame:CreateFontString(nil, nil, "GameFontNormal")
+	text:SetAllPoints(_frame)
+	text:SetJustifyH("LEFT")
+	_frame.Text = text
+
+	local bg = _frame:CreateTexture()
+	bg:SetAllPoints(_frame)
+	bg:Hide()
+	_frame.Background = bg
+
+	usedTextFrames[_frame] = true
+	return _frame
+end
+
+local tabs, tabsBtn, selectedTab = {}, {}, 1
+local teleportTab
+function frame:CreateTab(title, OnShowFn)
+	local i = #tabs + 1
+	tabs[i] = OnShowFn
+	---@class DBMKeystonesTabButton: Button
+	---@field Text FontString
+	local _tab = CreateFrame("Button", nil, frame, "PanelTabButtonTemplate")
+	tabsBtn[i] = _tab
+	PanelTemplates_SetNumTabs(self, i)
+	if i == 1 then
+		_tab:SetPoint("TOPLEFT", self, "BOTTOMLEFT", 11, 2)
+	else
+		_tab:SetPoint("TOPLEFT", tabsBtn[i - 1], "TOPRIGHT", 1, 0)
+	end
+	_tab.Text:SetText(title)
+	_tab:SetScript("OnClick", function()
+		self:ShowTab(i)
+	end)
+	return i
+end
+
+function frame:ShowTab(tab)
+	if tab == teleportTab and InCombatLockdown() then
+		return
+	end
+	PanelTemplates_SetTab(self, tab)
+	WipeTextFrames()
+	selectedTab = tab
+	tabs[tab]()
+end
+
+local refresh = CreateFrame("Button", nil, frame)
+refresh:SetSize(20, 20)
+refresh:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 8, 6)
+refresh:SetText("REFRESH")
+refresh:Show()
+refresh:SetNormalTexture("Interface\\Buttons\\UI-RefreshButton")
+refresh:SetPushedTexture("Interface\\Buttons\\UI-RefreshButton-Down")
+refresh:SetHighlightTexture("Interface\\Buttons\\UI-RefreshButton")
+refresh:SetScript("OnClick", function()
+	if selectedTab == 1 then
+		LibKeystone.Request("PARTY")
+	elseif selectedTab == 2 then
+		LibSpec.RequestGuildSpecialization()
+		C_Timer.After(0.1, function()
+			LibKeystone.Request("GUILD")
+		end)
+	end
+end)
+local function TeleportTooltipOnEnter(self)
+	if not self.spellID then
+		GameTooltip:SetOwner(self, "ANCHOR_TOP")
+	end
+	GameTooltip_AddNormalLine(GameTooltip, TELEPORT_TO_DUNGEON)
+	if InCombatLockdown() then
+		GameTooltip_AddColoredLine(GameTooltip, ERR_NOT_IN_COMBAT, HIGHLIGHT_FONT_COLOR)
+	else
+		if not DBMExtraGlobal:IsSpellKnown(self:GetAttribute('spell')) then
+			GameTooltip_AddColoredLine(GameTooltip, SPELL_FAILED_NOT_KNOWN, HIGHLIGHT_FONT_COLOR)
+		else
+			local start, duration = DBM:GetSpellCooldown(self:GetAttribute('spell'))
+			if start > 0 and duration > 0 then
+				local remainingSec = (start + duration) - GetTime()
+				local hours, minutes = mfloor(remainingSec / 3600), mfloor(remainingSec / 60)
+				if hours > 0 then
+					GameTooltip_AddColoredLine(GameTooltip, ITEM_COOLDOWN_TIME_HOURS:format(hours), HIGHLIGHT_FONT_COLOR)
+				else
+					GameTooltip_AddColoredLine(GameTooltip, ITEM_COOLDOWN_TIME_MIN:format(minutes), HIGHLIGHT_FONT_COLOR)
+				end
+			else
+				GameTooltip_AddColoredLine(GameTooltip, LFG_READY_CHECK_PLAYER_IS_READY:format(DBM:GetSpellName(self:GetAttribute('spell'))), HIGHLIGHT_FONT_COLOR)
+			end
+		end
+	end
+	GameTooltip:Show()
+end
+
+local function SortKeystones(v1, v2)
+	if v1.keyLevel ~= v2.keyLevel then
+		return v1.keyLevel > v2.keyLevel
+	end
+	if v1.playerRating ~= v2.playerRating then
+		return v1.playerRating > v2.playerRating
+	end
+	return v1.name > v2.name
+end
+
+local PartyGuildUpdate
+local function RegisterLibKeystone()
+	LibKeystone.Register(LibKeystoneTable, function(keyLevel, mapID, playerRating, sender, channel)
+		if channel == 'PARTY' then
+			-- We already have this entry, don't bother updating
+			if partyKeystones[sender] and partyKeystones[sender].keyLevel == keyLevel and partyKeystones[sender].mapID == mapID and partyKeystones[sender].playerRating == playerRating then
+				return
+			end
+			partyKeystones[sender] = {
+				name = sender,
+				keyLevel = keyLevel,
+				mapID = mapID,
+				playerRating = playerRating
+			}
+			if selectedTab == 1 then
+				PartyGuildUpdate(partyKeystones)
+			end
+		elseif channel == 'GUILD' then
+			-- We already have this entry, don't bother updating
+			if guildKeystones[sender] and guildKeystones[sender].keyLevel == keyLevel and guildKeystones[sender].mapID == mapID and guildKeystones[sender].playerRating == playerRating then
+				return
+			end
+			guildKeystones[sender] = {
+				name = sender,
+				keyLevel = keyLevel,
+				mapID = mapID,
+				playerRating = playerRating
+			}
+			if selectedTab == 2 then
+				PartyGuildUpdate(guildKeystones)
+			end
+		end
+	end)
+end
+
+function PartyGuildUpdate(table)
+	local sortTable = {}
+	for _, v in pairs(table) do
+		tinsert(sortTable, v)
+	end
+	tsort(sortTable, SortKeystones)
+
+	WipeTextFrames()
+
+	local titlePlayer = GetTextFrame()
+	titlePlayer.Text:SetFontObject(GameFontNormalLarge)
+	titlePlayer.Text:SetText(PLAYER)
+	titlePlayer:SetPoint("TOPLEFT", child, 7, 0)
+	titlePlayer:SetWidth(120)
+
+	local titleLevel = GetTextFrame()
+	titleLevel.Text:SetFontObject(GameFontNormalLarge)
+	titleLevel.Text:SetText(LEVEL)
+	titleLevel:SetPoint("LEFT", titlePlayer, "RIGHT")
+	titleLevel:SetWidth(mmax(75, titleLevel.Text:GetStringWidth() + 20))
+
+	local titleDungeon = GetTextFrame()
+	titleDungeon.Text:SetFontObject(GameFontNormalLarge)
+	titleDungeon.Text:SetText(LFG_TYPE_DUNGEON)
+	titleDungeon:SetPoint("LEFT", titleLevel, "RIGHT")
+	titleDungeon:SetWidth(mmax(75, titleDungeon.Text:GetStringWidth() + 20))
+
+	local titleRating = GetTextFrame()
+	titleRating.Text:SetFontObject(GameFontNormalLarge)
+	titleRating.Text:SetText(RATING)
+	titleRating:SetPoint("LEFT", titleDungeon, "RIGHT")
+	titleRating:SetWidth(mmax(75, titleRating.Text:GetStringWidth() + 20))
+
+	for i, v in ipairs(sortTable) do
+		local fullName = v.name
+		local name = DBM:GetShortServerName(fullName) or fullName
+		if v.specID or playerSpecs[fullName] then
+			local _, _, _, _, _, class = GetSpecializationInfoByID(v.specID or playerSpecs[fullName])
+			local playerColor = RAID_CLASS_COLORS[class]
+			if playerColor then
+				name = ("|r|cff%.2x%.2x%.2x%s|r|cff%.2x%.2x%.2x"):format(playerColor.r * 255, playerColor.g * 255, playerColor.b * 255, name, 0.41 * 255, 0.8 * 255, 0.94 * 255)
+			end
+		end
+
+		local offset = -((i - 1) * 14) - 4
+		local textPlayer, textLevel, textDungeon, textRating = GetTextFrame(), GetTextFrame(), GetTextFrame(), GetTextFrame()
+
+		textPlayer.Text:SetText(name)
+		textPlayer:SetPoint("TOP", titlePlayer, "BOTTOM", 0, offset)
+		textPlayer:SetWidth(120)
+		textPlayer:SetAttribute("type", "macro")
+		textPlayer:SetAttribute("macrotext", "/run ChatFrame_SendTell(\"" .. v.name .. "\")")
+
+		textLevel.Text:SetText(v.keyLevel == 0 and '-' or v.keyLevel or '?')
+		textLevel:SetPoint("TOP", titleLevel, "BOTTOM", 0, offset)
+		textLevel:SetWidth(titleLevel:GetWidth())
+
+		textDungeon.Text:SetText(L.KEYSTONE_NAMES[v.mapID] or (v.mapID == 0 and '-') or v.mapID or '?')
+		textDungeon:SetPoint("TOP", titleDungeon, "BOTTOM", 0, offset)
+		textDungeon:SetWidth(titleDungeon:GetWidth())
+		if v.mapID and v.mapID ~= 0 and teleportMap[v.mapID] then
+			textDungeon:SetScript('OnEnter', TeleportTooltipOnEnter)
+			textDungeon:SetScript('OnLeave', GameTooltip_Hide)
+			textDungeon:SetAttribute('type', 'spell')
+			textDungeon:SetAttribute('spell', teleportMap[v.mapID][2])
+		end
+
+		textRating.Text:SetText(v.playerRating == 0 and '-' or v.playerRating or '?')
+		textRating:SetPoint("TOP", titleRating, "BOTTOM", 0, offset)
+		textRating:SetWidth(titleRating:GetWidth())
+	end
+
+	-- Update main frame width
+	child:SetSize(mmax(300, 120 + titleLevel:GetWidth() + titleDungeon:GetWidth() + titleRating:GetWidth() + 8), mmax(scroll:GetHeight(), 50 + #sortTable * 14))
+	frame:SetWidth(child:GetWidth() + 32)
+end
+
+local UpdateKeystones
+
+do
+	local type, strsplit = type, string.split
+	local GetContainerNumSlots, GetContainerItemID, GetContainerItemLink, IsItemKeystoneByID =
+		C_Container.GetContainerNumSlots, C_Container.GetContainerItemID, C_Container.GetContainerItemLink, C_Item.IsItemKeystoneByID
+
+	function UpdateKeystones()
+		local resetTime = C_DateAndTime.GetWeeklyResetStartTime()
+		if not DBM_Keystones.resetTime or resetTime ~= DBM_Keystones.resetTime then
+			DBM_Keystones.resetTime = resetTime
+			DBM_Keystones.keys = {}
+		end
+
+		-- If not max level, don't store this character in the keys system
+		-- Unless we're in remix
+		if UnitLevel('player') ~= GetMaxPlayerLevel() and not isPlayerRemix then
+			return
+		end
+
+		local name = UnitName('player')
+		local currentRating = C_PlayerInfo.GetPlayerMythicPlusRatingSummary('player')
+		local keyLevel = C_MythicPlus.GetOwnedKeystoneLevel() or 0
+		local keyMap = C_MythicPlus.GetOwnedKeystoneChallengeMapID() or 0
+
+		-- Legion remix
+		if keyLevel == 0 and keyMap == 0 and isPlayerRemix then
+			for currentBag = 0, 4 do -- 0=Backpack, 1/2/3/4=Bags
+				local slots = GetContainerNumSlots(currentBag)
+				for currentSlot = 1, slots do
+					local itemID = GetContainerItemID(currentBag, currentSlot)
+					if itemID and IsItemKeystoneByID(itemID) then
+						local itemLink = GetContainerItemLink(currentBag, currentSlot)
+						if type(itemLink) == "string" then
+							local _, _, _, strChallengeMapID, strLevel = strsplit(":", itemLink)
+							local level = tonumber(strLevel)
+							local challengeMapID = tonumber(strChallengeMapID)
+							if challengeMapID and level then
+								keyLevel = level
+								keyMap = challengeMapID
+								break
+							end
+						end
+					end
+				end
+			end
+		end
+
+		DBM_Keystones.keys[UnitGUID('player')] = {
+			name = name,
+			specID = playerSpecs[name] or 0,
+			keyLevel = keyLevel or 0,
+			mapID = keyMap or 0,
+			playerRating = currentRating and currentRating.currentSeasonScore or 0,
+		}
+
+		-- Update the character frame
+		if selectedTab == 3 then -- Characters tab
+			PartyGuildUpdate(DBM_Keystones.keys)
+		end
+	end
+end
+
+frame:CreateTab(PARTY, function()
+	refresh:Show()
+	partyKeystones = {}
+	for _, v in pairs(DBM:GetRaidRoster()) do
+		partyKeystones[v.name] = {
+			name = v.name,
+			keyLevel = 0,
+			mapID = 0,
+			playerRating = 0,
+		}
+	end
+	PartyGuildUpdate(partyKeystones)
+	RegisterLibKeystone()
+	LibKeystone.Request("PARTY")
+end)
+
+frame:CreateTab(GUILD, function()
+	refresh:Show()
+	guildKeystones = {}
+	PartyGuildUpdate(guildKeystones)
+	RegisterLibKeystone()
+	LibSpec.RequestGuildSpecialization()
+	C_Timer.After(0.1, function()
+		LibKeystone.Request("GUILD")
+	end)
+end)
+
+frame:CreateTab(CHARACTER, function()
+	refresh:Hide()
+	UpdateKeystones()
+	PartyGuildUpdate(DBM_Keystones.keys)
+end)
+
+-- Teleport
+do
+	-- This will never be nil, but falling back just so it shuts up LuaLS
+	teleportTab = frame:CreateTab(DBM:GetSpellName(4801) or 'Teleport', function()
+		refresh:Hide()
+		WipeTextFrames()
+
+		local i, buttons = 1, {}
+		for _, challengeMapID in pairs(teleports) do
+			local teleport = teleportMap[challengeMapID]
+			if teleport then
+				local button = GetTextFrame()
+				buttons[#buttons + 1] = button
+				button:SetScript('OnEnter', TeleportTooltipOnEnter)
+				button:SetScript('OnLeave', GameTooltip_Hide)
+				button:SetAttribute('type', 'spell')
+				button:SetAttribute('spell', teleport[2])
+				button:SetSize(100, 50)
+				if i == 1 then
+					button:SetPoint("TOPLEFT", child, "TOPLEFT",40, -10)
+				elseif i % 2 == 0 then
+					button:SetPoint("LEFT", buttons[i - 1], "RIGHT", 25, 0)
+				else
+					button:SetPoint("TOP", buttons[i - 2], "BOTTOM", 0, -10)
+				end
+				button.Text:SetJustifyH("CENTER")
+				button.Text:SetText(GetRealZoneText(teleport[1]))
+				if not DBMExtraGlobal:IsSpellKnown(teleport[2]) then
+					button.Text:SetTextColor(1, 0, 0)
+				end
+				-- Scale down text size if it's long single words
+				while button.Text:IsTruncated() do
+					button.Text:SetTextScale(button.Text:GetTextScale() - 0.01)
+				end
+				button.Background:SetTexCoord(0, 0.68359375, 0, 0.7421875)
+				button.Background:SetTexture(teleport[3])
+				button.Background:SetDesaturation(0.75)
+				button.Background:SetAlpha(0.75)
+				button.Background:Show()
+				i = i + 1
+			else
+				DBM:Debug("Missing keystone info for challengeMapID: " .. challengeMapID)
+			end
+		end
+		child:SetSize(300, mmax(scroll:GetHeight(), 60 * (#buttons / 2)))
+		frame:SetWidth(child:GetWidth() + 32)
+	end)
+end
+
+function Keystones:Show()
+	if selectedTab == teleportTab and InCombatLockdown() then
+		return
+	end
+	if DBM.RaidChecks then
+		DBM.RaidChecks:Hide()
+	end
+	if _G["DBM_GUI_OptionsFrame"] then
+		frame:SetFrameLevel(_G["DBM_GUI_OptionsFrame"]:GetFrameLevel() + 10)
+	end
+	frame:ClearAllPoints()
+	frame:SetPoint(DBM.Options.KeystonesPosition[1], DBM.Options.KeystonesPosition[2], DBM.Options.KeystonesPosition[3])
+	frame:Show()
+	frame:ShowTab(selectedTab)
+end
+
+function Keystones:Hide()
+	frame:Hide()
+end
+
+local function delayedKeySlashCheck()
+	-- To note, no other addon gives a crap about intentionally deleting slash commands of other addons
+	-- We're the only ones that actually check first, even for addons that added feature long after us like EllesmereUI
+	local hasFreeSlash = false
+	local overrideSlash = DBM.Options.OverrideKeystoneSlash
+	--Don't override Details
+	if not SLASH_KEYSTONE1 or overrideSlash then
+		hasFreeSlash = true
+		SLASH_KEYSTONE1 = '/keystone'
+	end
+	--Don't override Details or EllesmereUI
+	if (not SLASH_KEYSTONE2 and not SLASH_EUIKEYS1) or overrideSlash then
+		hasFreeSlash = true
+		SLASH_KEYSTONE2 = '/keys'
+	end
+	--Don't override Details or EllesmereUI
+	if (not SLASH_KEYSTONE3 and not SLASH_EUIKEYS3) or overrideSlash then
+		hasFreeSlash = true
+		SLASH_KEYSTONE3 = '/key'
+	end
+	if hasFreeSlash then
+		SlashCmdList["KEYSTONE"] = function()
+			Keystones:Show()
+		end
+	end
+end
+
+local RegisterChallengesUI
+do
+	local initializedChallengesUI = false
+	local iconButtons
+	local buttonsActive = false
+
+	local function CreateChallengeIconButton(icon, spellID)
+		local button = CreateFrame('Button', nil, icon, 'InsecureActionButtonTemplate')
+		button:SetAllPoints(icon)
+		button:RegisterForClicks('AnyDown', 'AnyUp')
+		button:SetScript('OnEnter', function()
+			local parentOnEnter = icon:GetScript('OnEnter')
+			if parentOnEnter then
+				parentOnEnter(icon)
+			end
+			GameTooltip_AddBlankLineToTooltip(GameTooltip)
+			TeleportTooltipOnEnter(button)
+		end)
+		button:SetScript('OnLeave', GameTooltip_Hide)
+		button:SetAttribute('type', 'spell')
+		button:SetAttribute('spell', spellID)
+		button.spellID = spellID
+		return button
+	end
+
+	local function RefreshChallengesUI()
+		--Secure hooks cannot be removed; the approved disabled path is this single gate.
+		if not DBM.Options.AddChallengeTeleports then return end
+		if InCombatLockdown() then
+			if iconButtons then
+				for _, button in pairs(iconButtons) do
+					button:EnableMouse(false)
+				end
+			end
+			return
+		end
+		if not ChallengesFrame or not ChallengesFrame.DungeonIcons then
+			return
+		end
+
+		for _, icon in pairs(ChallengesFrame.DungeonIcons) do
+			local data = teleportMap[icon.mapID]
+			if data then
+				if not iconButtons[icon] then
+					iconButtons[icon] = CreateChallengeIconButton(icon, data[2])
+				elseif iconButtons[icon].spellID ~= data[2] then
+					iconButtons[icon]:SetAttribute('type', 'spell')
+					iconButtons[icon]:SetAttribute('spell', data[2])
+					iconButtons[icon].spellID = data[2]
+				end
+				iconButtons[icon]:EnableMouse(true)
+				iconButtons[icon]:Show()
+				buttonsActive = true
+			else
+				if iconButtons[icon] then
+					iconButtons[icon]:Hide()
+					iconButtons[icon]:ClearAttributes()
+					iconButtons[icon].spellID = nil
+				end
+				if icon.mapID then DBM:Debug("Missing keystone info for challengeMapID: " .. icon.mapID) end
+			end
+		end
+	end
+
+	function RegisterChallengesUI()
+		if not DBM.Options.AddChallengeTeleports then
+			if buttonsActive then
+				local inCombat = InCombatLockdown()
+				for _, button in pairs(iconButtons) do
+					button:EnableMouse(false)
+					button:Hide()
+					if not inCombat then
+						button:ClearAttributes()
+						button.spellID = nil
+					end
+				end
+				--Defer attribute cleanup until combat ends, but disable interaction immediately.
+				buttonsActive = inCombat
+			end
+			return
+		end
+		if not C_AddOns.IsAddOnLoaded('Blizzard_ChallengesUI') then
+			return
+		end
+		if not ChallengesFrame then
+			return
+		end
+		if not initializedChallengesUI then
+			iconButtons = {}
+			hooksecurefunc(ChallengesFrame, 'Update', RefreshChallengesUI)
+			initializedChallengesUI = true
+		end
+		RefreshChallengesUI()
+	end
+	Keystones.RefreshChallengesUI = RegisterChallengesUI
+end
+
+frame:SetScript('OnEvent', function(_, event, arg1, arg2)
+	if event == 'UNIT_CONNECTION' then
+		if selectedTab == 1 and arg2 then -- isConnected
+			LibKeystone.Request("PARTY")
+		end
+	elseif event == 'ADDON_LOADED' then
+		if arg1 == 'Blizzard_ChallengesUI' then
+			RegisterChallengesUI()
+		end
+	elseif event == 'PLAYER_ENTERING_WORLD' then
+		updateTeleports()
+		if not DBM_Keystones then
+			DBM_Keystones = {
+				keys = {}
+			}
+		end
+		C_Timer.After(1, function()
+			--Intentionally delay so addons after we load register their slash first
+			--Larger delay because I don't know evert addon registering slash commands on PLAYER_ENTERING_WORLD
+			delayedKeySlashCheck()
+		end)
+		UpdateKeystones()
+		RegisterChallengesUI()
+	elseif event == 'PLAYER_INTERACTION_MANAGER_FRAME_HIDE' then
+		if arg1 == 3 or arg1 == 49 then
+			UpdateKeystones()
+		end
+	elseif event == 'CHALLENGE_MODE_COMPLETED' then
+		if DBM.Options.ShowKeystoneOnComplete then
+			selectedTab = 1
+			Keystones:Show()
+		end
+	elseif event == 'PLAYER_REGEN_DISABLED' then
+		if selectedTab == teleportTab then
+			Keystones:Hide()
+		end
+		Keystones.RefreshChallengesUI()
+	elseif event == 'PLAYER_REGEN_ENABLED' then
+		Keystones.RefreshChallengesUI()
+	end
+end)
+frame:RegisterEvent('PLAYER_ENTERING_WORLD')
+frame:RegisterEvent('PLAYER_INTERACTION_MANAGER_FRAME_HIDE')
+frame:RegisterEvent('UNIT_CONNECTION')
+frame:RegisterEvent('CHALLENGE_MODE_COMPLETED')
+frame:RegisterEvent('ADDON_LOADED')
+frame:RegisterEvent('PLAYER_REGEN_DISABLED')
+frame:RegisterEvent('PLAYER_REGEN_ENABLED')

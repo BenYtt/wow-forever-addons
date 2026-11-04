@@ -1,0 +1,14 @@
+## Interface: 30404
+## Author: Okrah, Lag
+## Version: 12902
+## Dependencies: AtlasLootContinued
+## LoadOnDemand: 0
+
+## Title: AtlasLoot Continued |cFF0099FF[Favourites]|r
+## Notes: Bookmark and browse your favourite loot items
+
+## X-Category: Map
+## X-License: GPL v2
+
+Favourites.lua
+Favourites_GUI.lua

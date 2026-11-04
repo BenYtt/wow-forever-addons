@@ -1,0 +1,141 @@
+<Ui xmlns="http://www.blizzard.com/wow/ui/">
+	<!-- The addon's map pins are its own frames on the map canvas (UI/MapCanvas.lua), so no template here inherits the
+	     map's pin templates or names a mixin: the pools put the mixins on. Each keeps the art of the stock pin it stands
+	     in for (BaseHighlightableMapPoiPinTemplate in SharedMapPoiTemplates.xml): a texture and its added highlight. -->
+	<Frame name="ShortestPathForeverDockPinTemplate" virtual="true">
+		<Layers>
+			<!-- The map legend's glow for a related pin (LegendHighlightablePoiPinMixin:ShowMapLegendGlow). -->
+			<Layer level="BACKGROUND">
+				<!-- art-ok: a square glow, 18 past every side of the square pin -->
+				<Texture parentKey="Glow" atlas="UI-QuestPoi-OuterGlow" hidden="true">
+					<Anchors>
+						<Anchor point="TOPLEFT" x="-18" y="18"/>
+						<Anchor point="BOTTOMRIGHT" x="18" y="-18"/>
+					</Anchors>
+				</Texture>
+			</Layer>
+			<Layer level="ARTWORK">
+				<Texture parentKey="Texture">
+					<Anchors>
+						<Anchor point="CENTER"/>
+					</Anchors>
+				</Texture>
+			</Layer>
+			<Layer level="HIGHLIGHT">
+				<Texture parentKey="HighlightTexture" alphaMode="ADD" alpha="0.4">
+					<Anchors>
+						<Anchor point="CENTER"/>
+					</Anchors>
+				</Texture>
+			</Layer>
+		</Layers>
+	</Frame>
+	<Frame name="ShortestPathForeverPortalPinTemplate" virtual="true">
+		<Layers>
+			<Layer level="ARTWORK">
+				<Texture parentKey="Texture">
+					<Anchors>
+						<Anchor point="CENTER"/>
+					</Anchors>
+				</Texture>
+			</Layer>
+			<Layer level="HIGHLIGHT">
+				<Texture parentKey="HighlightTexture" alphaMode="ADD" alpha="0.4">
+					<Anchors>
+						<Anchor point="CENTER"/>
+					</Anchors>
+				</Texture>
+			</Layer>
+		</Layers>
+	</Frame>
+	<!-- The stock flight point's art (FlightPointPinTemplate): the node, its highlight, and the glow and marker it wears
+	     while super-tracked (SuperTrackableMapPinTemplate). -->
+	<Frame name="ShortestPathForeverFlightPinTemplate" virtual="true">
+		<Layers>
+			<Layer level="BACKGROUND">
+				<!-- art-ok: a square glow, 18 past every side of the node (SuperTrackablePinMixin's anchors) -->
+				<Texture parentKey="SuperTrackGlow" atlas="UI-QuestPoi-OuterGlow" hidden="true">
+					<Anchors>
+						<Anchor point="TOPLEFT" x="-18" y="18"/>
+						<Anchor point="BOTTOMRIGHT" x="18" y="-18"/>
+					</Anchors>
+				</Texture>
+			</Layer>
+			<Layer level="ARTWORK">
+				<Texture parentKey="Texture">
+					<Anchors>
+						<Anchor point="CENTER"/>
+					</Anchors>
+				</Texture>
+			</Layer>
+			<Layer level="ARTWORK" textureSubLevel="7">
+				<!-- art-ok: the stock super-track marker at the stock 20 by 20, the square pin it is drawn as -->
+				<Texture parentKey="SuperTrackMarker" atlas="Waypoint-MapPin-Tracked" hidden="true">
+					<Size x="20" y="20"/>
+					<Anchors>
+						<Anchor point="CENTER" relativePoint="BOTTOMRIGHT" x="-4" y="4"/>
+					</Anchors>
+				</Texture>
+			</Layer>
+			<Layer level="HIGHLIGHT">
+				<Texture parentKey="HighlightTexture" alphaMode="ADD" alpha="0.4">
+					<Anchors>
+						<Anchor point="CENTER"/>
+					</Anchors>
+				</Texture>
+			</Layer>
+		</Layers>
+	</Frame>
+	<!-- The client's own blob widget, as QuestBlobPinTemplate (QuestBlobDataProvider.xml) is one. -->
+	<QuestPOIFrame name="ShortestPathForeverAreaPinTemplate" virtual="true"/>
+	<Frame name="ShortestPathForeverGoalPinTemplate" virtual="true">
+		<Layers>
+			<!-- A numbered stop of a multi-stop journey is the map's own quest button (POIButtonTemplate in
+			     Blizzard_POIButton): its brown disc and gold ring, the numbered quest button's yellow numeral from
+			     UI-QuestPoi-NumberIcons (QuestPOINumericTemplate), and its inner glow on hover. A shadow of the disc
+			     stays opaque under it, so a faded later stop still hides the POI beneath. A stop whose caller said what
+			     stands there wears that mark as a badge over the button's lower right; a lone one shows the mark alone,
+			     and a lone destination the waypoint pin. -->
+			<Layer level="BACKGROUND">
+				<!-- art-ok: the 32 by 32 quest button at its own size -->
+				<Texture parentKey="Disc" atlas="UI-QuestPoi-QuestNumber" hidden="true">
+					<Size x="32" y="32"/>
+					<Anchors>
+						<Anchor point="CENTER"/>
+					</Anchors>
+				</Texture>
+			</Layer>
+			<Layer level="ARTWORK">
+				<Texture parentKey="Texture" setAllPoints="true"/>
+				<!-- art-ok: the 32 by 32 quest button at its own size -->
+				<Texture parentKey="Button" atlas="UI-QuestPoi-QuestNumber" hidden="true">
+					<Size x="32" y="32"/>
+					<Anchors>
+						<Anchor point="CENTER"/>
+					</Anchors>
+				</Texture>
+			</Layer>
+			<Layer level="ARTWORK" textureSubLevel="1">
+				<!-- art-ok: one square cell of the numeral grid (StopPin.lua's SetTexCoord) in a square box -->
+				<Texture parentKey="Numeral" file="Interface\WorldMap\UI-QuestPoi-NumberIcons" hidden="true">
+					<Size x="32" y="32"/>
+					<Anchors>
+						<Anchor point="CENTER"/>
+					</Anchors>
+				</Texture>
+			</Layer>
+			<Layer level="OVERLAY">
+				<!-- art-ok: the quest button's 32 by 32 inner glow at its own size -->
+				<Texture parentKey="Glow" atlas="UI-QuestPoi-InnerGlow" alphaMode="ADD" hidden="true">
+					<Size x="32" y="32"/>
+					<Anchors>
+						<Anchor point="CENTER"/>
+					</Anchors>
+				</Texture>
+			</Layer>
+			<Layer level="OVERLAY" textureSubLevel="1">
+				<Texture parentKey="Icon" hidden="true"/>
+			</Layer>
+		</Layers>
+	</Frame>
+</Ui>

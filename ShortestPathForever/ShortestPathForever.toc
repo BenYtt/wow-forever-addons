@@ -1,0 +1,102 @@
+## Interface: 16001
+## Title: Shortest Path Forever
+## Notes: The fastest way anywhere: walking paths, flight points, boats, zeppelins, lifts, the tram and portals, with live departure times.
+## Author: cjber
+## Version: v1.22.26
+## Category: Map
+## OptionalDeps: QuestieDB, TweaksForever, RXPGuides
+## X-License: GPL-3.0-or-later
+## X-Website: https://github.com/cjber/shortest-path-forever
+## X-Curse-Project-ID: 1708599
+## X-Wago-ID: b6Xy1wKp
+## SavedVariables: ShortestPathForeverDB
+## SavedVariablesPerCharacter: ShortestPathForeverCharDB
+## IconTexture: Interface\AddOns\ShortestPathForever\media\Icon
+## AddonCompartmentFunc: ShortestPathForever_OnAddonCompartmentClick
+
+Locales\enUS.lua
+Locales\deDE.lua
+Locales\esES.lua
+Locales\esMX.lua
+Locales\frFR.lua
+Locales\koKR.lua
+Locales\ptBR.lua
+Locales\ruRU.lua
+Locales\zhCN.lua
+Locales\zhTW.lua
+Core\SafeCall.lua
+Core\Text.lua
+Data\Routes.lua
+Data\Transports.lua
+Data\Taxi.lua
+Data\Portals.lua
+Data\Teleports.lua
+Data\Zones.lua
+Data\Walks.lua
+Transport\Model.lua
+Routing\Planner.lua
+Core\Core.lua
+Core\Distance.lua
+Transport\Timetable.lua
+Transport\TaxiTimes.lua
+Core\PlanContext.lua
+UI\MenuModifier.lua
+UI\Nearby.lua
+Transport\Observer.lua
+Transport\Sync.lua
+UI\Map.xml
+Transport\Taxi.lua
+Core\PeerStats.lua
+Core\Progress.lua
+Transport\Teleports.lua
+UI\Art.lua
+UI\Report.lua
+UI\ForeverFamily.lua
+UI\FamilyHints.lua
+UI\OpenMap.lua
+UI\CompanionMaps.lua
+UI\MapCanvas.lua
+UI\Map.lua
+UI\FlightPins.lua
+UI\Looks.lua
+UI\MinimapPins.lua
+UI\TrackerQuestie.lua
+UI\TrackerLock.lua
+UI\TrackerOrder.lua
+UI\TrackerHost.lua
+UI\Tracker.lua
+UI\Mover.lua
+UI\Arrow.lua
+UI\Compass.lua
+Nav\Nav.xml
+Routing\PathGrid.lua
+Routing\Path.lua
+Routing\PathJobs.lua
+Journey\JourneySteps.lua
+Journey\Hazards.lua
+Journey\JourneySearch.lua
+Journey\JourneyWalks.lua
+Journey\JourneyGuide.lua
+Journey\Journey.lua
+Journey\JourneyInput.lua
+Journey\Follow.lua
+Journey\Corpse.lua
+Journey\FactionHint.lua
+UI\StopPin.lua
+UI\FlightLines.lua
+UI\Strokes.lua
+UI\QuestBlob.lua
+UI\Route.lua
+UI\RouteTransports.lua
+UI\Alert.lua
+UI\Settings.lua
+UI\SettingsPage.lua
+UI\WhatsNew.lua
+Core\API.lua
+Journey\Resume.lua
+Core\Report.lua
+Journey\Itinerary.lua
+Core\TomTom.lua
+Core\Way.lua
+Core\RestedXP.lua
+UI\DestinationPin.lua

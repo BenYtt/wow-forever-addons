@@ -1,0 +1,95 @@
+# The source the per-flavour tocs are generated from -- one today,
+# Manners_Camelot.toc -- and the fallback the game reads on any client that does
+# not honour a suffixed name. Edit this one; run `python tools/maketocs.py` and
+# the generated toc follows. tests/validate.py fails if they have drifted.
+#
+# The interface is a single number, 16001, because 1.0 ships for WoW Forever
+# alone. It is the one client anybody here can test, and the number is the one
+# that shipped and is known to work there.
+## Interface: 16001, 11509, 20506, 50504, 120105
+## Title: Manners
+## Notes: Somebody buffed you. One click buffs them back, and your target is handed straight back.
+## Notes-deDE: Jemand hat Euch gestärkt. Ein Klick erwidert den Gefallen, und Euer Ziel bekommt Ihr gleich zurück.
+## Notes-esES: Alguien te ha dado un beneficio. Un clic se lo devuelve, y tu objetivo anterior vuelve enseguida.
+## Notes-esMX: Alguien te ha dado un beneficio. Un clic se lo devuelve, y tu objetivo anterior vuelve enseguida.
+## Notes-frFR: Quelqu'un vient de vous buffer. Un clic pour lui rendre la politesse, et votre cible vous est aussitôt rendue.
+## Notes-itIT: Qualcuno ti ha appena dato un beneficio. Un clic per ricambiare, e il tuo bersaglio ti viene subito restituito.
+## Notes-koKR: 누군가 나에게 버프를 주면 클릭 한 번으로 보답하고, 내 대상도 곧바로 돌려받습니다.
+## Notes-ptBR: Alguém acabou de dar um bônus a você. Um clique devolve o favor, e o seu alvo anterior volta na hora.
+## Notes-zhCN: 有人给你加了增益，一键回敬对方，你原来的目标也会马上恢复。
+## Notes-zhTW: 有人替你加了增益，一鍵回敬對方，你原本的目標也會馬上恢復。
+## Author: Sacha
+## Version: 1.11.0
+## SavedVariables: MannersDB
+## X-Compatible-With: forever
+## X-License: MIT
+## X-Category: Buffs & Debuffs
+## X-Website: https://github.com/fpsacha/Manners
+
+## X-Curse-Project-ID: 1705364
+## X-Wago-ID: rNkgzlNa
+## IconTexture: Interface\AddOns\Manners\Textures\Manners64
+
+embeds.xml
+
+Locales\Locales.xml
+
+Flavour.lua
+Buffs.lua
+Core.lua
+Range.lua
+Speech.lua
+Queue.lua
+GroupBuffs.lua
+Requests.lua
+Favours.lua
+Clicks.lua
+Commands.lua
+Phrases.lua
+Ledger.lua
+Looks\Looks.lua
+Looks\Previews.lua
+Looks\Luxe.lua
+Looks\Toast.lua
+Looks\Arcane.lua
+Looks\Ribbon.lua
+Looks\Letter.lua
+Looks\Leather.lua
+Looks\Forge.lua
+Prompt\Prompt.lua
+Prompt\Text.lua
+Prompt\Effects.lua
+Prompt\Hold.lua
+Prompt\Macro.lua
+Prompt\Press.lua
+Prompt\Button.lua
+Prompt\Panel.lua
+Prompt\List.lua
+Prompt\Rows.lua
+Prompt\Paint.lua
+Prompt\Refresh.lua
+Options\Shared.lua
+Options\Launcher.lua
+Options\Start.lua
+Options\Who.lua
+Options\When.lua
+Options\Say.lua
+Options\Look.lua
+Options\Advanced.lua
+Options\Diagnostics.lua
+Options\Profiles.lua
+Options\Window\Search.lua
+Options\Window\Bind.lua
+Options\Window\Widgets.lua
+Options\Window\WidgetsChoice.lua
+Options\Window\WidgetsEntry.lua
+Options\Window\WidgetsOrder.lua
+Options\Window\WidgetsTheme.lua
+Options\Window\Layout.lua
+Options\Window\Window.lua
+Options\Window\WindowChrome.lua
+Options\Window\WindowPage.lua
+Options\Window\WindowSearch.lua
+Options\Register.lua
+Selftest.lua
+SelftestLaunch.lua

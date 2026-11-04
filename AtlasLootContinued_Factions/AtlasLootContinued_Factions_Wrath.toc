@@ -1,0 +1,25 @@
+﻿## Interface: 30404
+## Author: Okrah, Lag
+## Version: 12902
+## Dependencies: AtlasLootContinued
+## LoadOnDemand: 1
+
+## Title: AtlasLoot Continued |cFF0099FF[Factions]|r
+## Title-deDE: AtlasLoot Continued |cFF0099FF[Fraktionen]|r
+## Title-esES: AtlasLoot Continued |cFF0099FF[Facciones]|r
+## Title-frFR: AtlasLoot Continued |cFF0099FF[Factions]|r
+## Notes: AtlasLoot loot tables from Factions
+## Notes-deDE: AtlasLoot Beuteverzeichnis der Fraktionen
+## Notes-esES: AtlasLoot tablas de botín de Facciones
+## Notes-frFR: Tables de butin des factions
+
+## X-Category: Map
+## X-License: GPL v2
+
+## X-AtlasLoot-LootModule: 1
+
+Locales\Locales.xml
+
+data.lua
+data-tbc.lua
+data-wrath.lua

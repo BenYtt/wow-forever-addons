@@ -1,0 +1,404 @@
+---@class SPFNamespace
+local ns = select(2, ...)
+local L = ns.L
+
+---@type SPFTracker
+local module
+---@class SPFTracker : SPFTrackerModule
+---@field journeyTracker? boolean
+---@field metres? boolean
+---@field riding? number|false
+---@field second number
+---@field journeyVersion? number
+---@field familyVersion? integer
+---@field sightingVersion? number
+---@field tracker? boolean
+---@field otherFaction? boolean
+---@field dockID? number
+---@field section string
+---@field Spinner Frame
+---@field mapDock? number
+---@field blocks {key: number|string, title: string, rows: SPFRow[]}[]
+local ModuleMixin = { headerText = L["Boats"] }
+local HEADER = { boat = L["Boats"], zeppelin = L["Boats"], lift = L["Lifts"], tram = L["Deeprun Tram"] }
+
+local function OpenDockMap(dockID)
+	local location = dockID and ns.DockLocation(dockID)
+	ns.OpenWorldMap(location and location.uiMap)
+end
+
+function ModuleMixin:OnBlockHeaderClick(block, button)
+	if block.id == "journey" then
+		if button == "LeftButton" then
+			ns.ToggleJourneyGuide()
+		elseif button == "RightButton" then
+			ns.ContextMenu(block, function(_, root)
+				root:CreateCheckbox(L["Guide me"], ns.IsJourneyGuided, ns.ToggleJourneyGuide)
+				root:CreateButton(L["Show on map"], ns.ShowJourneyMap)
+				root:CreateButton(L["Resume RestedXP guide"], function()
+					ns.ResumeRestedXP()
+				end)
+				-- A corpse run ends only when you live again.
+				if not ns.Corpse.Active() then
+					root:CreateButton(L["Clear journey"], ns.ClearJourney)
+				end
+				-- The shared column can be dragged anywhere once it is let go of the quest tracker (also in Settings). The
+				-- host switches only out of combat, so in combat the entry is left out rather than seeming to do nothing.
+				local host = ns.TrackerHost
+				if host and host.SetAttached and host.IsAttachedToQuestTracker and not InCombatLockdown() then
+					root:CreateCheckbox(L["Attach to quest tracker"], host.IsAttachedToQuestTracker, function()
+						host.SetAttached(not host.IsAttachedToQuestTracker())
+					end)
+				end
+			end)
+		end
+	elseif block.id == "family" then
+		if button == "LeftButton" then
+			ns.FamilyHints.OpenFooter()
+		end
+	elseif button == "LeftButton" then
+		OpenDockMap(self.mapDock)
+	end
+end
+
+local function DepartureText(departure)
+	local text = ns.DockLabel(departure.to[1]) .. "   " .. ns.Timetable.Status(departure)
+	return departure.known and text or GRAY_FONT_COLOR:WrapTextInColorCode(text)
+end
+
+local function RowColor(row)
+	return row.grey and GRAY_FONT_COLOR
+		or row.current and OBJECTIVE_TRACKER_COLOR.NormalHighlight
+		or OBJECTIVE_TRACKER_COLOR.Normal
+end
+
+function ModuleMixin:LayoutContents()
+	for _, entry in ipairs(self.blocks) do
+		local block = self:GetBlock(entry.key)
+		block:SetHeader(entry.title)
+		block.headerHeight = block.HeaderText:GetHeight()
+		for _, row in ipairs(entry.rows) do
+			local line = block:AddObjective(row.key, row.text, nil, true, nil, RowColor(row))
+			local family = entry.key == "family"
+			local clickable = family or entry.key == "journey" and row.current and not ns.Corpse.Active()
+			line:EnableMouse(clickable == true)
+			line:SetScript("OnMouseUp", clickable and function(_, button)
+				if button ~= "LeftButton" then
+					return
+				elseif family then
+					ns.FamilyHints.OpenFooter()
+					return
+				end
+				ns.ContextMenu(line, function(_, root)
+					root:CreateButton(L["Complete this step"], function()
+						local index = row.key
+						if type(index) == "number" then
+							ns.SkipJourneyStep(index)
+						end
+					end)
+				end)
+			end or nil)
+		end
+		if not self:LayoutBlock(block) then
+			return
+		end
+	end
+end
+
+-- Waiting at a dock: its departures, one line per destination.
+local function DockRows(dockID)
+	local departures = ns.Timetable.ByDestination(dockID)
+	local rows = {}
+	for _, departure in ipairs(departures) do
+		rows[#rows + 1] = { key = departure.route, text = DepartureText(departure) }
+	end
+	return rows, departures[1] and departures[1].kind
+end
+
+-- On board, out of sight of any dock: where the boat calls next.
+local function RideRows(routeID)
+	local dockID, arriveIn = ns.Timetable.NextStop(routeID)
+	if not dockID or not arriveIn then
+		return nil
+	end
+	local kind = ns.Routes[routeID].kind
+	local text = string.format(L["arrives %s"], ns.FormatCountdown(arriveIn))
+	return { { key = routeID, text = text } }, kind, dockID
+end
+
+-- The yards left along the journey's legs, kept until the journey or its route changes. The tracker's header and
+-- the destination pin's tooltip (StopPin.lua) both read it.
+---@type SPFDistanceCache?
+local distanceCache
+
+local function JourneyDistance(result, index)
+	local cache = distanceCache
+	if not cache or cache.result ~= result or cache.version ~= ns.journeyVersion then
+		cache = { result = result, version = ns.journeyVersion, legs = {} }
+		local total = 0
+		for legIndex = #result.legs, index, -1 do
+			local leg = result.legs[legIndex]
+			local points = ns.PlanContext.LegPoints(leg)
+			local after, lengths = {}, {}
+			local yards = 0
+			for pointIndex = #points, 1, -1 do
+				local a, b = points[pointIndex], points[pointIndex + 1]
+				local length = 0
+				-- Loading screens and portals connect unrelated world coordinates, not walkable yards.
+				if b and a.map == b.map and not a.jump and leg.mode ~= "portal" then
+					length = math.sqrt((b.x - a.x) ^ 2 + (b.y - a.y) ^ 2)
+				end
+				yards = yards + length
+				after[pointIndex], lengths[pointIndex] = yards, length
+			end
+			cache.legs[legIndex] = { points = points, after = after, lengths = lengths, yards = yards, later = total }
+			total = total + yards
+		end
+		distanceCache = cache
+	end
+	local leg, path = result.legs[index], cache.legs[index]
+	if not path then
+		return 0
+	end
+	local yards = path.yards
+	local active = leg.mode == "walk"
+		or leg.aboard
+		or (leg.route and ns.CurrentRide() == leg.route)
+		or (leg.mode == "flight" and UnitOnTaxi("player"))
+	if active and leg.mode ~= "portal" then
+		local x, y, _, map = ns.JourneyPosition()
+		local nearest
+		for pointIndex, a in ipairs(path.points) do
+			if x and map == a.map then
+				local b, length = path.points[pointIndex + 1], path.lengths[pointIndex]
+				local t, px, py = 0, a.x, a.y
+				if length > 0 then
+					local dx, dy = b.x - a.x, b.y - a.y
+					t = math.max(0, math.min(1, ((x - a.x) * dx + (y - a.y) * dy) / length ^ 2))
+					px, py = a.x + t * dx, a.y + t * dy
+				end
+				local off = (x - px) ^ 2 + (y - py) ^ 2
+				if not nearest or off < nearest then
+					nearest = off
+					yards = path.after[pointIndex] - t * length
+					if leg.mode == "walk" then
+						yards = yards + math.sqrt(off)
+					end
+				end
+			end
+		end
+	end
+	return math.max(0, yards + path.later)
+end
+
+-- The time and distance left, as the tracker's header shows them; nil while the journey is still being planned.
+---@return string? time, string? distance
+local function JourneyLeft(result, index, loading)
+	if not result or loading then
+		distanceCache = nil
+		return nil
+	end
+	local distance = ns.FormatDistance(JourneyDistance(result, index), true)
+	return ns.FormatCountdown(ns.JourneyTime(result.legs, index)), distance
+end
+
+---@return string? time, string? distance
+function ns.JourneyLeft()
+	local _, _, result, index, loading = ns.JourneyInfo()
+	return JourneyLeft(result, index, loading)
+end
+
+local function JourneyHeader(result, index, loading)
+	local time, distance = JourneyLeft(result, index, loading)
+	if not time then
+		return L["Journey"]
+	end
+	return string.format(L["Journey  %s · %s"], time, distance)
+end
+
+local function RefreshBlockText(blocks)
+	-- Countdown ticks reuse Blizzard's lines; only a row that outgrows its line needs a new layout. A row whose
+	-- timer sits at the wrapping width would otherwise gain and lose a line each second and shake the column.
+	local resized = false
+	for _, entry in ipairs(blocks) do
+		local block = module:GetExistingBlock(entry.key)
+		if block and block.used then
+			if block.HeaderText:GetText() ~= entry.title then
+				local height = block:SetStringText(
+					block.HeaderText,
+					entry.title,
+					nil,
+					OBJECTIVE_TRACKER_COLOR.Header,
+					block.isHighlighted
+				)
+				resized = resized or height ~= block.headerHeight
+				block.headerHeight = height
+			end
+			for _, row in ipairs(entry.rows) do
+				local line = block:GetExistingLine(row.key)
+				if line and line.used and line.Text:GetText() ~= row.text then
+					local height = block:SetStringText(line.Text, row.text, true, RowColor(row), block.isHighlighted)
+					resized = resized or height > line:GetHeight() + 0.5
+				end
+			end
+		end
+	end
+	if resized then
+		module:MarkDirty()
+	end
+end
+
+local function RefreshTracker(dockID, yards)
+	if not module or InCombatLockdown() then
+		return
+	end
+	local rows, kind, title, blockKey, mapDock
+	if ns.db.tracker then
+		local radius = module.dockID and 160 or 120
+		if not yards or yards > radius then
+			dockID = nil
+		end
+	else
+		dockID = nil
+	end
+	local riding = ns.db.tracker and ns.CurrentRide()
+	local journey = ns.HasJourney() and ns.db.journeyTracker ~= false
+	local second = (dockID or riding or journey) and math.floor(GetTime()) or 0
+	-- After a journey arrives, Hints.Footer (UI/FamilyHints.lua) may add a grey line under it.
+	local familyBlock = ns.FamilyHints.Footer()
+	-- Compare scalar render inputs before allocating blocks or formatting rows. Unrelated tracker
+	-- layouts can replay the saved blocks; they never need to query timetables or rebuild the model.
+	if
+		module.dockID == dockID
+		and module.riding == riding
+		and module.second == second
+		and module.journeyVersion == ns.journeyVersion
+		and module.familyVersion == ns.FamilyHints.Version()
+		and module.sightingVersion == ns.Timetable.Version()
+		and module.tracker == ns.db.tracker
+		and module.otherFaction == ns.db.otherFaction
+		and module.journeyTracker == ns.db.journeyTracker
+		and module.metres == ns.db.metres
+	then
+		return
+	end
+	module.riding, module.second = riding, second
+	module.journeyVersion, module.sightingVersion = ns.journeyVersion, ns.Timetable.Version()
+	module.familyVersion = ns.FamilyHints.Version()
+	module.tracker, module.otherFaction = ns.db.tracker, ns.db.otherFaction
+	module.journeyTracker, module.metres = ns.db.journeyTracker, ns.db.metres
+	if dockID then
+		rows, kind = DockRows(dockID)
+		title, blockKey, mapDock = ns.DockTitle(dockID), "dock" .. dockID, dockID
+	elseif riding then
+		rows, kind, mapDock = RideRows(riding)
+		if rows and mapDock then
+			title, blockKey = string.format(L["On board to %s"], ns.DockTitle(mapDock)), "ride" .. mapDock
+		end
+	end
+	local blocks = {}
+	local journeyTitle, journeyRows, journeyResult, journeyIndex, loading = ns.JourneyInfo()
+	if not journey then
+		journeyTitle = nil
+	end
+	if journeyTitle then
+		blocks[#blocks + 1] = { key = "journey", title = journeyTitle, rows = journeyRows }
+	elseif familyBlock then
+		blocks[#blocks + 1] = familyBlock
+	end
+	if blockKey then
+		blocks[#blocks + 1] = { key = blockKey, title = title, rows = rows }
+	end
+	module.dockID, module.mapDock = dockID, mapDock
+	local section = journeyTitle and L["Journey"]
+		or kind and HEADER[kind]
+		or familyBlock and L["Journey"]
+		or ModuleMixin.headerText
+	local header = journeyTitle and JourneyHeader(journeyResult, journeyIndex, loading) or section
+	if not journeyTitle then
+		distanceCache = nil
+	end
+	-- The section's identity affects layout; its live totals only change the header's single text line.
+	local changed = #blocks ~= #module.blocks or section ~= module.section
+	module.section = section
+	for index, entry in ipairs(blocks) do
+		local previous = module.blocks[index]
+		if not previous or entry.key ~= previous.key or #entry.rows ~= #previous.rows then
+			changed = true
+		else
+			for rowIndex, row in ipairs(entry.rows) do
+				local old = previous.rows[rowIndex]
+				changed = changed or row.key ~= old.key or row.current ~= old.current
+			end
+		end
+	end
+	module.blocks = blocks
+	if header ~= module.headerText then
+		module.headerText = header
+		module:SetHeader(header)
+	end
+	if loading then
+		-- The stock header's font string has a fixed width; anchor beside its text, not that box's edge.
+		module.Spinner:SetPoint("LEFT", module.Header.Text, "LEFT", module.Header.Text:GetStringWidth() + 6, 0)
+	end
+	module.Spinner:SetShown(loading == true)
+	ns.RefreshJourneyPulse(loading == true)
+	if changed then
+		module:MarkDirty()
+		return
+	end
+	if module:IsDirty() then
+		return
+	end
+	RefreshBlockText(blocks)
+end
+
+function ns.RefreshTracker()
+	RefreshTracker(ns.NearestDock())
+end
+
+local function Attach()
+	ForeverTrackerHost.Attach(module)
+end
+
+ns.Init(function()
+	if not (ObjectiveTrackerManager and ObjectiveTrackerFrame) then
+		ns.Print(L["The objective tracker is unavailable."])
+		return
+	end
+	local tracker =
+		CreateFrame("Frame", "ShortestPathForeverObjectiveTracker", UIParent, "ObjectiveTrackerModuleTemplate")
+	Mixin(tracker, ModuleMixin)
+	---@cast tracker SPFTracker
+	module = tracker
+	module.blocks = {}
+	-- SharedXML loads Group Finder's ring and sparks, with animation tied to the frame's visibility.
+	local spinner = CreateFrame("Frame", nil, module.Header, "SpinnerTemplate")
+	---@cast spinner Frame
+	module.Spinner = spinner
+	module.Spinner:SetSize(16, 16)
+	module.Spinner:Hide()
+	module.section = ModuleMixin.headerText
+	module:SetHeader(ModuleMixin.headerText)
+	-- Above quests, SkillUp Forever (-2) and Legacy Forever (0, -1): each needs its own slot.
+	module.uiOrder = -3
+	module.Header:EnableMouse(true)
+	module.Header:SetScript("OnMouseUp", function(_, button)
+		if button == "LeftButton" then
+			if ns.JourneyInfo() then
+				ns.ToggleJourneyGuide()
+			elseif not module.mapDock and module.blocks[1] and module.blocks[1].key == "family" then
+				ns.FamilyHints.OpenFooter()
+			else
+				OpenDockMap(module.mapDock)
+			end
+		end
+	end)
+	EventUtil.ContinueAfterAllEvents(function()
+		C_Timer.After(0, Attach)
+	end, "PLAYER_ENTERING_WORLD", "VARIABLES_LOADED")
+	Attach()
+	ns.Timetable.OnChange(ns.RefreshTracker)
+	ns.OnTravelTick(RefreshTracker)
+	ns.RefreshTracker()
+end)

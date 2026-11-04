@@ -1,0 +1,220 @@
+OneForAll - dungeon data sources
+===============================================================================
+Where the dungeon data in Data\Dungeons, Data\DungeonQuestChains.lua,
+Data\DungeonKeys.lua, Data\DungeonDropChance.lua and Data\BossInfo.lua comes
+from. Newest sections at the bottom. Facts (IDs, levels, coordinates, drop
+tables) come from the sources named below; all descriptions and notes are
+written for OneForAll.
+
+General sources
+- Quests, quest givers, turn-ins, objectives, prerequisites, NPC spawns:
+  QuestieDB Forever (https://github.com/Questie/questiedb, GPL-3, see
+  THIRD_PARTY_LICENSES.txt), cross-checked with Wowhead Forever quest pages.
+- Quest rewards and XP: wowforevertalents.com quest pages and Wowhead Forever.
+- Boss and trash loot: foreverchanges.pro dungeon pages and wowtbc.gg loot
+  tables; item names, slots and qualities from the Wowhead tooltip API
+  (Forever data, Classic data as fallback).
+- Boss portraits (display IDs), level ranges and the boss levels of the Forever dungeons: foreverchanges.pro.
+  Hall of Thanes boss levels (16, 2026-10-22): wowforeverguides.com and wow4ever.quest ("level 16"),
+  foreverchanges.pro had none yet.
+- Boss and entrance positions on the maps of Hall of Thanes, Ruins of Lordaeron, Excavation Site and City of
+  Dalaran: the boss pins of the foreverchanges.pro dungeon maps, converted to our map layout (approximate).
+- Classic drop chances: foreverchanges.pro (Wowhead Classic data).
+
+
+4.4.0 dungeons (Stockade, Gnomeregan, SM Graveyard, Excavation Site, City of Dalaran), checked 30 September 2026
+===============================================================================
+- Level ranges: https://www.warcrafttavern.com/forever/guides/dungeons/ (new
+  dungeons match https://www.wowhead.com/forever/guide/dungeons-overview-locations-details).
+- Quests, quest givers, coordinates and rewards: Wowhead Forever quest pages
+  (https://www.wowhead.com/forever/quest=<id>).
+- Boss loot: Wowhead Forever NPC pages, boss-specific drops only (green or better,
+  at least 3 % drop chance, Season of Discovery items excluded). Classic items that
+  are missing from the Forever tables (e.g. Thermaplugg's Left Arm) are not listed.
+- Dark Iron Ambassador has no Forever drop table yet.
+- Excavation Site and City of Dalaran: boss NPC IDs from Wowhead Forever; no loot
+  or quests are published. Mana Elemental has no confirmed Forever NPC ID.
+- Prerequisites/breadcrumbs: checked against the QuestieDB Forever data as a reference
+  (github.com/Questie/questiedb), cross-checked with Wowhead.
+- Entrance coordinates for the new dungeons are not verified in game yet
+  (the Map button tooltip says so). City of Dalaran has no entrance position yet.
+
+
+Hunter pet data (Data/HunterPets.lua), updated 3 October 2026
+===============================================================================
+- Pet families, abilities, ranks, training points and teaching beasts:
+  https://www.wow-petopia.com/forever/ (family pages and abilities.php).
+  Spawn coordinates for the Map buttons from QuestieDB (Forever data).
+- Forever-only abilities (Dismember, Dust Cloud, Lava Breath, Mine!, Pinch,
+  Savage Rend, Swipe, Tendon Rip, Trickster's Dance, Web, Demoralizing Screech)
+  have no known training source on Petopia yet. Core Hounds and Foxes: tameable
+  beasts not confirmed yet.
+- Known gaps: no known teacher for Charge rank 4 and Lightning Breath rank 1;
+  Growl listed with 0 training points (single source).
+
+
+Profession recipes (Data/Professions/*.lua), extracted 5 October 2026
+===============================================================================
+- Recipes, skill colors, reagents, crafted items and recipe items from the WoW
+  Forever client database, build 1.60.1.70205 (DB2 exports from wago.tools:
+  SkillLineAbility, SpellEffect, SpellReagents, ItemSparse, ItemEffect,
+  ItemXItemEffect, TradeSkillCategory).
+- Recipe sources (vendors, drops, quest rewards) and coordinates from QuestieDB
+  (Forever data). Season of Discovery leftovers in the client data are excluded.
+
+2026-10-09 Razorfen Kraul, Scarlet Monastery: Library, recipe drops
+- Razorfen Kraul and Scarlet Monastery: Library: quests, levels, start/end NPCs,
+  rewards and XP from Wowhead Forever quest pages; quest chains, NPC spawns and
+  boss levels from QuestieDB Forever; boss and trash loot from wowtbc.gg loot
+  tables (trash: rare and better only).
+- Recipe drops of dungeon bosses (Data\Professions\BossDrops.lua) and the
+  drop / vendor sources of recipes that had none: Wowhead Forever item pages
+  ("Dropped by" / "Sold by"). Forever recipes come from a shared low-rate pool,
+  so bosses can drop recipes that are not listed yet.
+
+
+2026-10-12 Ten more dungeons (Armory to Sunken Temple)
+===============================================================================
+Scarlet Monastery: Armory and Cathedral, The Drowned City, Razorfen Downs,
+Krol'dok Stronghold, Uldaman, Zul'Farrak, Maraudon, Alcaz Prison and
+The Temple of Atal'Hakkar.
+- Level ranges: foreverchanges.pro dungeon pages (Blizzard forum post on the
+  new dungeon level ranges for the new dungeons).
+- Quests, quest levels, start/end NPCs and their coordinates, prerequisite
+  chains and Classic reward items: QuestieDB Forever data
+  (github.com/Questie/questiedb), checked against the Wowhead Forever dungeon
+  quest guide (wowhead.com/forever/guide/dungeons/every-dungeon-quest-location).
+- Quests seen on the beta (rewards incl. new Forever items, XP, money):
+  wowforevertalents.com quest pages (beta quest cache). Quests not seen on
+  the beta yet show their Classic rewards; Forever may add new reward choices.
+- XP fallbacks: beta value where recorded, otherwise the Classic value when
+  the Forever quest level is unchanged.
+- Boss loot (Classic drop tables, no drop chances): wowtbc.gg Forever loot
+  tables; foreverchanges.pro for bosses wowtbc.gg does not list (Sunken
+  Temple, Zul'Farrak event bosses, Uldaman Obsidian Sentinel, Maraudon Veng
+  and Maraudos) and for Zul'Farrak / Sunken Temple trash. Item slots and
+  qualities: Wowhead Forever tooltips (Classic tooltips when Forever has no
+  entry yet). Trash: rare and better only.
+- Boss levels: QuestieDB Forever NPC data.
+- The Drowned City: boss names and NPC IDs from the Wowhead Forever database
+  (placeholder titles "Staging Area 1-6"), Zin'aka from the BlizzCon demo
+  (Warcraft Tavern via foreverchanges.pro). Three Horde quests from the beta
+  quest cache (wowforevertalents.com). No loot recorded yet.
+- Krol'dok Stronghold and Alcaz Prison: location and story only (Blizzard at
+  BlizzCon / PAX Australia via foreverchanges.pro and wowforevertalents.com).
+  No bosses, quests or loot are known yet.
+- Entrance coordinates for the Classic dungeons: QuestieDB dungeon entrances;
+  not verified in game yet.
+
+
+2026-10-12 Last ten dungeons (Blackrock Depths to Shaper's Terrace)
+===============================================================================
+Blackrock Depths, Lower and Upper Blackrock Spire, Dire Maul East / West /
+North, Scholomance, Stratholme (one entry for both gates), Blackmaw Hold and
+Shaper's Terrace.
+- Same sources and rules as the previous ten dungeons (QuestieDB Forever,
+  Wowhead Forever dungeon quest guide, wowtbc.gg, foreverchanges.pro).
+- Lower and Upper Blackrock Spire loot: foreverchanges.pro (Classic drop
+  tables); wowtbc.gg has no tables for them. Upper Blackrock Spire, Scholomance
+  and Stratholme quests are not in the Wowhead guide; they are taken from
+  QuestieDB Forever (dungeon zone and quest text).
+- Scholomance minor bosses (Malicia, Krastinov, Polkelt, Ravenian, the Barovs)
+  and the Dire Maul North guards: foreverchanges.pro loot tables.
+- Boss portraits: creature display IDs from foreverchanges.pro boss pictures
+  (also added for the previous ten dungeons).
+- Blackmaw Hold and Shaper's Terrace: location and story only.
+- Entrance coordinates: QuestieDB dungeon entrances (Blackrock Mountain via
+  Searing Gorge); not verified in game yet.
+
+
+2026-10-12 Dungeon keys (Data\DungeonKeys.lua)
+===============================================================================
+- Key items, quest chains and NPC positions: QuestieDB Forever (item, quest
+  and NPC data); key drops (Crescent Key, Workshop Key, Key to the City,
+  Prison Cell Key) from the QuestieDB drop data and foreverchanges.pro loot
+  tables. The Scarlet Key and Skeleton Key are still needed in Forever
+  according to the Wowhead Forever dungeon quest guide; the others follow
+  Classic and are not verified on the beta yet (level cap 30).
+- City of Dalaran: the Horde quest line brings a Dalaran Sewer Key; it is not
+  known yet whether the dungeon needs it, so it is not listed.
+
+
+2026-10-12 Drop chances (Data\DungeonDropChance.lua)
+===============================================================================
+- Classic drop chances from the foreverchanges.pro loot tables ("Drop chance
+  in Classic", originally Wowhead Classic data). About 90 % of the listed boss
+  and trash items have one; new Forever dungeons and items have none. Forever
+  drop rates are not published yet.
+
+
+2026-10-12 Boss creature types (Data\BossInfo.lua)
+===============================================================================
+- Creature types from the Wowhead Forever NPC tooltips (Classic tooltips as
+  fallback); Gahz'rilla and Aku'mai added by hand (Beast). Missing types are
+  learned in game (UnitCreatureType) when the boss is targeted.
+
+
+2026-10-13 First 14 dungeons rebuilt from own sources (OneForAll 5.4.4)
+===============================================================================
+Hall of Thanes, Ragefire Chasm, Ruins of Lordaeron, Deadmines, Wailing Caverns,
+Shadowfang Keep, Blackfathom Deeps, Excavation Site, Stockade, City of Dalaran,
+Gnomeregan, SM Graveyard, Razorfen Kraul and SM Library, generated with
+tools/dungeon-gen/early_rebuild.py and early_chains.py:
+- Quest givers, turn-ins, objectives, levels, faction: QuestieDB Forever;
+  Forever-only quests without QuestieDB data: quest text and "picked up from"
+  data on wowforevertalents.com (beta quest cache).
+- Quest rewards, XP, money and reputation: wowforevertalents.com quest pages
+  (QuestieDB reward items and XP where a page is missing).
+- Prerequisite chains: QuestieDB Forever (preQuestSingle / preQuestGroup),
+  otherwise the "Comes after" box on wowforevertalents.com.
+- Boss loot: wowtbc.gg boss tables plus equipment (green or better) from the
+  foreverchanges.pro boss pages; trash loot: wowtbc.gg (rare or better).
+  Item names, slots and qualities from the Wowhead tooltip API.
+- Boss display IDs: foreverchanges.pro boss pictures.
+- Quest start map pins: QuestieDB Forever spawns, otherwise the "picked up
+  from" coordinates on wowforevertalents.com. Pins without a source were removed.
+- Dungeon entrances: QuestieDB Forever (support/Forever/Zones/dungeons.lua).
+- Descriptions, quest notes, boss and item notes: written for OneForAll
+  (tools/dungeon-gen/early_texts.py).
+
+
+2026-10-14 Raids and trainer spells (OneForAll 5.5.0)
+===============================================================================
+Generated with tools/dungeon-gen/raids.py and tools/trainer-gen/trainer_spells.py:
+- Raid list, sizes and opening date: Blizzard (BlizzCon 2026, 2026-2027
+  roadmap) as listed on wowforevertalents.com.
+- Boss names of Barrow Deeps and Hyjal Summit: wowtbc.gg Forever loot tables.
+- Onyxia's Lair: quests, NPC positions and the drops known so far from
+  QuestieDB Forever; rewards from wowforevertalents.com; item names, slots and
+  qualities from the Wowhead tooltip API; entrance from QuestieDB Forever.
+- Onyxia attunement (Drakefire Amulet): quest chains from QuestieDB Forever
+  (preQuestSingle / preQuestGroup).
+- Trainer spells: WoW Forever client database (SkillLineAbility, SpellLevels,
+  SpellName, Spell, SpellMisc; wago.tools DB2 export, product "wowf").
+  Training costs are not in the client data; they are read in game at the
+  class trainer.
+- Raid descriptions: written for OneForAll.
+- Profession trainers (Professions overview, "Nearest trainers"): QuestieDB
+  Forever NPC data (title, trainer flag, faction, position).
+
+
+2026-10-15 Armory (OneForAll 5.6.0)
+===============================================================================
+Generated with tools/armory-gen/armory.py:
+- Item sets: WoW Forever client database (ItemSet, Item, ItemSparse, Faction;
+  wago.tools DB2 export, product "wowf").
+- Item names, qualities, class restrictions and set bonus texts: Wowhead
+  tooltip API (Forever, fallback Classic).
+- Sources of set pieces: our own dungeon loot, quest reward and profession
+  data (see above). A set without a known source in Forever is marked
+  "Not in Forever yet" (or "Source not known yet" for sets made for Forever).
+- Reputation rewards: required faction and standing from ItemSparse and the
+  Wowhead tooltip; vendors from Wowhead Forever item pages ("Sold by");
+  vendor positions from QuestieDB Forever and Wowhead Forever NPC pages.
+
+2026-10-15 Dungeon maps (OneForAll 5.6.0)
+===============================================================================
+- Map layout (room picture positions, sizes and turns, boss and entrance
+  positions): Forever Simple World Map 0.30.2 by Tarolg (MIT, used with the author's
+  agreement; see THIRD_PARTY_LICENSES.txt), extracted with
+  tools/dungeon-maps/fwm_maps.lua. The pictures are the client's minimap images.

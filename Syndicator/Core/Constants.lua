@@ -1,0 +1,147 @@
+---@class addonTableSyndicator
+local addonTable = select(2, ...)
+
+local build = select(4, GetBuildInfo())
+
+addonTable.Constants = {
+  AllBagIndexes = {
+    Enum.BagIndex.Backpack,
+    Enum.BagIndex.Bag_1,
+    Enum.BagIndex.Bag_2,
+    Enum.BagIndex.Bag_3,
+    Enum.BagIndex.Bag_4,
+  },
+  AllBankIndexes = {},
+  AllWarbandIndexes = {},
+
+  IsRetail = WOW_PROJECT_ID == WOW_PROJECT_MAINLINE and build >= 120000,
+  IsForever = build >= 16000 and build < 20000,
+  IsClassic = WOW_PROJECT_ID ~= WOW_PROJECT_MAINLINE,
+  IsMists = WOW_PROJECT_ID == WOW_PROJECT_MISTS_CLASSIC,
+  IsCata = WOW_PROJECT_ID == WOW_PROJECT_CATACLYSM_CLASSIC,
+  IsWrath = WOW_PROJECT_ID == WOW_PROJECT_WRATH_CLASSIC,
+  IsBC = WOW_PROJECT_ID == WOW_PROJECT_BURNING_CRUSADE_CLASSIC,
+  IsEra = WOW_PROJECT_ID == WOW_PROJECT_CLASSIC,
+
+  IsTalebound = GetGameType and GetGameType() == "wowhack",
+
+  IsTitan = GetBuildInfo():match("^3%.8") ~= nil,
+
+  IsLegacyAH = WOW_PROJECT_ID == WOW_PROJECT_CLASSIC or IsUsingLegacyAuctionClient ~= nil and IsUsingLegacyAuctionClient(),
+
+  BattlePetCageID = 82800,
+
+  BankBagSlotsCount = 0,
+
+  MaxGuildBankTabItemSlots = 98,
+
+  EquippedInventorySlotOffset = 1,
+
+  WarbandBankActive = false,
+
+  MailExpiryDuration = 30 * 24 * 60 * 60,
+}
+
+addonTable.Constants.IsClassic = addonTable.Constants.IsClassic and not addonTable.Constants.IsForever
+
+addonTable.Constants.IsBrokenTooltipScanning = false
+
+if addonTable.Constants.IsRetail or addonTable.Constants.IsForever then
+  addonTable.Constants.WarbandBankActive = addonTable.Constants.IsRetail
+  addonTable.Constants.CharacterBankTabsActive = true
+  addonTable.Constants.BankTabsAsBags = C_Bank.ShouldUsePlayerBagsInBank and C_Bank.ShouldUsePlayerBagsInBank() or false
+  table.insert(addonTable.Constants.AllBagIndexes, Enum.BagIndex.ReagentBag)
+  addonTable.Constants.BagSlotsCount = 5
+  addonTable.Constants.MaxBagSize = 42
+  addonTable.Constants.AllBankIndexes = {
+    Enum.BagIndex.CharacterBankTab_1,
+    Enum.BagIndex.CharacterBankTab_2,
+    Enum.BagIndex.CharacterBankTab_3,
+    Enum.BagIndex.CharacterBankTab_4,
+    Enum.BagIndex.CharacterBankTab_5,
+    Enum.BagIndex.CharacterBankTab_6,
+    Enum.BagIndex.CharacterBankTab_7,
+    Enum.BagIndex.CharacterBankTab_8,
+    Enum.BagIndex.CharacterBankTab_9,
+  }
+  addonTable.Constants.BankBagSlotsCount = 0
+  addonTable.Constants.AllWarbandIndexes = {
+    Enum.BagIndex.AccountBankTab_1,
+    Enum.BagIndex.AccountBankTab_2,
+    Enum.BagIndex.AccountBankTab_3,
+    Enum.BagIndex.AccountBankTab_4,
+    Enum.BagIndex.AccountBankTab_5,
+    Enum.BagIndex.AccountBankTab_6,
+    Enum.BagIndex.AccountBankTab_7,
+    Enum.BagIndex.AccountBankTab_8,
+    Enum.BagIndex.AccountBankTab_9,
+  }
+end
+
+if addonTable.Constants.IsEra or addonTable.Constants.IsForever or (KeyRingButtonIDToInvSlotID and not addonTable.Constants.IsMists) then
+  table.insert(addonTable.Constants.AllBagIndexes, Enum.BagIndex.Keyring)
+end
+if addonTable.Constants.IsEra then
+  addonTable.Constants.BankBagSlotsCount = 6
+elseif addonTable.Constants.IsClassic then
+  addonTable.Constants.BankBagSlotsCount = 7
+end
+if addonTable.Constants.IsClassic then
+  addonTable.Constants.AllBankIndexes = {
+    Enum.BagIndex.Bank,
+  }
+  -- Workaround for the enum containing the wrong values for the bank bag slots
+  for i = 1, addonTable.Constants.BankBagSlotsCount do
+    addonTable.Constants.AllBankIndexes[i + 1] = NUM_BAG_SLOTS + i
+  end
+  addonTable.Constants.BagSlotsCount = 4
+  addonTable.Constants.MaxBagSize = 36
+end
+
+addonTable.Constants.Events = {
+  "CharacterDeleted",
+  "GuildDeleted",
+
+  "BagCacheUpdate",
+  "WarbandBankCacheUpdate",
+  "MailCacheUpdate",
+  "CurrencyCacheUpdate",
+  "WarbandCurrencyCacheUpdate",
+  "GuildCacheUpdate",
+  "GuildNameSet",
+  "EquippedCacheUpdate",
+  "VoidCacheUpdate",
+  "AuctionsCacheUpdate",
+
+  "Ready",
+
+  "AuctionValueSourceChanged"
+}
+
+-- Hidden currencies for all characters tooltips as they are shared between characters
+addonTable.Constants.SharedCurrencies = {
+  2032, -- Trader's Tender
+  3292, -- Infinite Knowledge
+}
+
+local AccountBoundTooltipLines = {
+  ITEM_BIND_TO_BNETACCOUNT,
+  ITEM_BNETACCOUNTBOUND,
+  ITEM_BIND_TO_ACCOUNT,
+  ITEM_ACCOUNTBOUND,
+}
+local AccountBoundTooltipLinesNotBound = {
+  ITEM_ACCOUNTBOUND_UNTIL_EQUIP,
+  ITEM_BIND_TO_ACCOUNT_UNTIL_EQUIP,
+}
+addonTable.Constants.AccountBoundTooltipLines = {}
+addonTable.Constants.AccountBoundTooltipLinesNotBound = {}
+-- Done this way because not all the lines exist on all clients
+for _, line in pairs(AccountBoundTooltipLines) do
+  table.insert(addonTable.Constants.AccountBoundTooltipLines, line)
+end
+for _, line in pairs(AccountBoundTooltipLinesNotBound) do
+  table.insert(addonTable.Constants.AccountBoundTooltipLinesNotBound, line)
+end
+
+Syndicator.Constants = CopyTable(addonTable.Constants)

@@ -1,0 +1,11 @@
+<Ui xmlns="http://www.blizzard.com/wow/ui/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.blizzard.com/wow/ui/ https://raw.githubusercontent.com/Gethe/wow-ui-source/live/Interface/AddOns/Blizzard_SharedXML/UI.xsd">
+	<!-- A tracker objective line that takes the mouse. The tracker pools lines by template name,
+	     so these never mix with Blizzard's or another section's lines. Shopping.lua sets its scripts. -->
+	<Frame name="SkillUpForeverTrackerLineTemplate" inherits="ObjectiveTrackerLineTemplate" enableMouse="true" virtual="true"/>
+
+	<!-- The route lists' three kinds of element. The scroll box pools frames by template name, so a row, a
+	     heading and a message never share a frame and List.lua builds each one's contents. -->
+	<Button name="SkillUpForeverListRowTemplate" virtual="true"/>
+	<Frame name="SkillUpForeverListHeadingTemplate" virtual="true"/>
+	<Frame name="SkillUpForeverListMessageTemplate" virtual="true"/>
+</Ui>

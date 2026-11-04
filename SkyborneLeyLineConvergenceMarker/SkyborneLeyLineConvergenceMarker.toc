@@ -1,0 +1,17 @@
+## Interface: 16001
+## Title: Skyborne Leyline & Convergence Marker
+## Notes: Shows known Skyborne leylines (Alliance) and elemental convergences (Horde) on the zone map
+## Author: tr0tsky
+## Version: 1.0.0
+## IconAtlas: MagePortalAlliance
+## X-Category: Map & Minimap
+## X-License: MIT
+## X-Curse-Project-ID: 1713910
+## SavedVariables: SkyborneMarkerDB
+Data.lua
+DiscordLink.lua
+AboutPage.lua
+SkyborneLeyLineConvergenceMarker.lua
+Comm.lua
+Scan.lua
+Pins.xml

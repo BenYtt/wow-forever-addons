@@ -1,0 +1,23 @@
+Specialization detection data attribution
+
+Talent tree names, final talents, icons and ranked spell IDs adapted from:
+Data from talentsforever.com (https://talentsforever.com)
+Source: https://talentsforever.com/data.json
+Source generated: 2026-09-26
+Licensed under Creative Commons Attribution 4.0 International:
+https://creativecommons.org/licenses/by/4.0/
+
+Modified for ForeverAuras: retain the final talent for each of 27 class trees
+and its beta spell IDs; omit talent descriptions and unrelated data.
+
+Passive talent IDs verified against Forever talent records on 2026-09-26:
+https://www.wowhead.com/forever/spells/talents/paladin (Twist of Light, 1310735)
+https://www.wowhead.com/forever/spells/talents/hunter (Lacerating Strikes, 1310533)
+https://www.wowhead.com/forever/spells/talents/rogue (Thousand Cuts, 1310721)
+https://www.wowhead.com/forever/spells/talents/warlock (Demonic Pact, 425464)
+
+Game names and icons belong to Blizzard Entertainment. No endorsement by
+Blizzard, Wowhead, or the source author is implied.
+
+All 27 base talent IDs also cross-checked against the corresponding class
+talent lists at https://www.wowhead.com/forever/spells/talents on 2026-09-26.

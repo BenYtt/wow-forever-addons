@@ -1,0 +1,26 @@
+# TODO: World of Warcraft: Forever - set the real Interface number once known (in-game: /dump select(4, GetBuildInfo());)
+## Interface: 16000, 16001, 120100
+## Author: Okrah, Lag
+## Version: 12902
+## Dependencies: AtlasLootContinued
+## LoadOnDemand: 1
+
+## Title: AtlasLoot Continued |cFF0099FF[Collections]|r
+## Title-deDE: AtlasLoot Continued |cFF0099FF[Sammlungen]|r
+## Title-esES: AtlasLoot Continued |cFF0099FF[Colecciones]|r
+## Title-frFR: AtlasLoot Continued |cFF0099FF[Collections]|r
+## Notes: AtlasLoot loot tables from Collections
+## Notes-deDE: AtlasLoot Beuteverzeichnis der Sammlungen
+## Notes-esES: AtlasLoot tablas de botín de Colecciones
+## Notes-frFR: Tables de butin des collections
+
+## X-Category: Map
+## X-License: GPL v2
+
+## X-AtlasLoot-LootModule: 1
+
+Locales\Locales.xml
+
+private.lua
+data.lua
+data-forever.lua

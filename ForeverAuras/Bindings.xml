@@ -1,0 +1,12 @@
+<!-- Modified for ForeverAuras; namespace and/or implementation changes through 2026-09-18. -->
+<Bindings>
+  <Binding name="ForeverAurasTOGGLE" Category="BINDING_HEADER_ForeverAuras">
+    WeakAuras.OpenOptions()
+  </Binding>
+  <Binding name="ForeverAurasPROFILINGTOGGLE" Category="BINDING_HEADER_ForeverAuras">
+    WeakAurasProfilingFrame:Toggle()
+  </Binding>
+  <Binding name="ForeverAurasPRINTPROFILING" Category="BINDING_HEADER_ForeverAuras">
+    WeakAuras.PrintProfile()
+  </Binding>
+</Bindings>

@@ -1,0 +1,269 @@
+local _, wt = ...
+
+local tinsert = tinsert
+local ipairs = ipairs
+
+wt.ClassData = {}
+function wt.forClass(token)
+    wt.ClassData[token] = wt.ClassData[token] or {}
+    return wt.ClassData[token]
+end
+
+local function filter(spellsByLevel, pred)
+    local output = {}
+    for level, spells in pairs(spellsByLevel) do
+        output[level] = {}
+        for _, spell in ipairs(spells) do
+            if (pred(spell) == true) then
+                tinsert(output[level], spell)
+            end
+        end
+    end
+    return output
+end
+function wt.FactionFilter(spellsByLevel, faction)
+    faction = faction or wt.playerFaction
+    return filter(spellsByLevel, function(spell)
+        return spell.faction == nil or spell.faction == faction
+    end)
+end
+function wt.RaceFilter(spellsByLevel, race)
+    race = race or wt.playerRace
+    return filter(spellsByLevel, function(spell)
+        if (spell.race == nil and spell.races == nil) then return true end
+        if (spell.races == nil) then return spell.race == race end
+        return spell.races[1] == race or spell.races[2] == race
+    end)
+end
+
+wt.QUEST_MARKER = "|A:SmallQuestBang:14:14|a"
+-- see wt.QuestSpells in Classes/[Game]/QuestSpells.lua for table definition
+function wt.questSpellsFor(entriesById, race)
+    local result = {}
+    for id, entries in pairs(entriesById or {}) do
+        for _, entry in ipairs(entries) do
+            if tContains(entry.races, race) then
+                tinsert(result, {
+                    id = id, level = entry.level, races = entry.races,
+                    areas = entry.areas or {entry.area}, quests = entry.quests,
+                })
+                break
+            end
+        end
+    end
+    return result
+end
+
+function wt.AddQuestSpells(questSpells)
+    for _, entry in ipairs(wt.questSpellsFor(questSpells[wt.currentClass], wt.playerRace)) do
+        wt.SpellsByLevel[entry.level] = wt.SpellsByLevel[entry.level] or {}
+        tinsert(wt.SpellsByLevel[entry.level], {id = entry.id, cost = 0, quest = {
+            areas = entry.areas, quests = entry.quests, level = entry.level,
+        }})
+    end
+end
+
+--[[
+    varargs is just a set of tables, where each table is a list of spell ids that
+    totally overwrite a previous rank of that ability ordered by rank.
+    Most warrior and rogue abilities are like this, as they cost the same amount
+    of resources but just last longer or do more damage.
+]]
+function wt:AddOverriddenSpells(...)
+    local abilityMap = {}
+    for _, abilityIds in ipairs({...}) do
+        for _, abilityId in ipairs(abilityIds) do
+            abilityMap[abilityId] = abilityIds
+        end
+    end
+    self.overriddenSpellsMap = abilityMap
+end
+
+local ROMAN_DIGITS = { I = 1, V = 5, X = 10 }
+local function romanToNumber(numeral)
+    local total, prev = 0, 0
+    for i = #numeral, 1, -1 do
+        local value = ROMAN_DIGITS[numeral:sub(i, i)]
+        total = value < prev and total - value or total + value
+        prev = value
+    end
+    return total
+end
+
+-- In Classic Era 1.15.9, trainers list poisons without a roman numeral
+-- TBC Anniversary does include the roman numeral (as 1.15.8 did)
+-- strip roman numerals if the name has the same number as the subText (Rank #)
+function wt.stripRankNumeral(name, subText)
+    local base, numeral = string.match(name, "^(.-)%s+([IVX]+)$")
+    local rank = subText and string.match(subText, "%d+")
+    if base and rank and romanToNumber(numeral) == tonumber(rank) then
+        return base
+    end
+    return name
+end
+
+function wt:IsPetAbility(spellId)
+    return self.PetAbilityIds ~= nil and self.PetAbilityIds[spellId]
+end
+function wt:IsPetAbilityLearned(key)
+    return self.learnedPetAbilityMap[key] == true
+end
+-- returns a bool indicating if the value changed
+function wt:SetPetAbilityStatus(key, learned)
+    local prior = self.learnedPetAbilityMap[key]
+    self.learnedPetAbilityMap[key] = learned
+    return prior ~= learned
+end
+
+function wt.formatSpellCost(spellInfo, fontHeight, costFormat)
+    local coloredCoinString = spellInfo.formattedCost or
+                                    C_CurrencyInfo.GetCoinTextureString(spellInfo.cost, fontHeight)
+    if spellInfo.costColor then
+        coloredCoinString = spellInfo.costColor .. coloredCoinString .. FONT_COLOR_CODE_CLOSE
+    elseif (GetMoney() < spellInfo.cost) then
+        coloredCoinString = RED_FONT_COLOR_CODE .. coloredCoinString .. FONT_COLOR_CODE_CLOSE
+    end
+    local formatString = costFormat or (spellInfo.isHeader and
+        (spellInfo.costFormat or wt.L.TOTALCOST_FORMAT) or
+        (spellInfo.costFormat or wt.L.COST_FORMAT))
+
+    return HIGHLIGHT_FONT_COLOR_CODE .. format(formatString, coloredCoinString) .. FONT_COLOR_CODE_CLOSE
+end
+
+-- The filtered spells under a category in wt.spellListData, and its header.
+function wt.categorySpells(key)
+    local spells, header = {}, nil
+    for _, entry in ipairs(wt.spellListData) do
+        if entry.isHeader then
+            if header then break end
+            if entry.key == key then header = entry end
+        elseif header then
+            tinsert(spells, entry)
+        end
+    end
+    return spells, header
+end
+
+function wt.availableSpells()
+    return wt.categorySpells(wt.AVAILABLE_KEY)
+end
+
+local function bestPrice(rows, base)
+    return rows[1] and rows[1].price < base and rows[1].price or nil
+end
+
+-- "Name · Standing · N% off"
+-- gold when selected, green when best
+function wt.priceRowLabel(row, best)
+    local text = row.noRep and format(wt.L.NO_REP_ROW_FORMAT, row.name) or
+        format(wt.L.REP_ROW_FORMAT, row.name, row.standingLabel, row.pct)
+    local selected, isBest = row.key == wt.selectedKey(), row.price == best
+    if selected then text = text .. " · " .. wt.L.PRICE_SELECTED end
+    if isBest then text = text .. " · " .. wt.L.PRICE_BEST end
+    local color = selected and NORMAL_FONT_COLOR_CODE or isBest and GREEN_FONT_COLOR_CODE
+    if color then text = color .. text .. FONT_COLOR_CODE_CLOSE end
+    return text, color
+end
+
+-- base cost plus one line per trainer faction, cheapest first
+function wt.addPricingBlock(tooltip, spellInfo, spells)
+    local rows, base = wt.priceRows(spells or spellInfo, wt.selectedKey())
+    if #rows == 0 or base == 0 then
+        tooltip:AddLine(wt.formatSpellCost(spellInfo))
+        return
+    end
+    tooltip:AddLine(wt.formatSpellCost(spellInfo, nil, wt.L.BASE_COST_FORMAT))
+    local best = bestPrice(rows, base)
+    local money = GetMoney()
+    for _, row in ipairs(wt.shownRows(rows)) do
+        local left, color = wt.priceRowLabel(row, best)
+        local right = C_CurrencyInfo.GetCoinTextureString(row.price)
+        local rightColor = money < row.price and RED_FONT_COLOR_CODE or color
+        if rightColor then right = rightColor .. right .. FONT_COLOR_CODE_CLOSE end
+        tooltip:AddDoubleLine(left, right)
+    end
+    if wt.hasPvpRankDiscount() then tooltip:AddLine(wt.L.PVP_RANK_FOOTER, 0.5, 0.5, 0.5) end
+end
+
+function wt.availablePriceRows()
+    local rows, base = wt.priceRows((wt.availableSpells()), wt.selectedKey())
+    return rows, base, bestPrice(rows, base)
+end
+
+local function isChoice(choice) return (WT_PriceFaction or "auto") == choice end
+local function setChoice(choice)
+    PlaySound(SOUNDKIT.U_CHAT_SCROLL_BUTTON)
+    WT_PriceFaction = choice
+    wt.RefreshUI()
+end
+
+function wt.priceMenuGenerator(_, root, flat)
+    local rows, base, best = wt.availablePriceRows()
+    root:CreateTitle(wt.L.PRICE_MENU_TITLE)
+    local baseText = format(wt.L.BASE_COST_FORMAT, C_CurrencyInfo.GetCoinTextureString(base))
+    if flat then root:CreateTitle(HIGHLIGHT_FONT_COLOR_CODE .. baseText .. FONT_COLOR_CODE_CLOSE)
+    else root:CreateTitle(baseText):AddInitializer(function(frame) frame.fontString:SetTextColor(1, 1, 1) end) end
+    root:CreateDivider()
+    root:CreateTitle(wt.L.PRICE_MENU_DISCOUNT)
+    root:CreateRadio(wt.L.PRICE_AUTO, isChoice, setChoice, "auto")
+    root:CreateRadio(wt.L.PRICE_NONE, isChoice, setChoice, "none")
+    root:CreateDivider()
+    for _, row in ipairs(rows) do
+        local standing = row.noRep and wt.L.PRICE_NO_REP or
+            format(wt.L.PRICE_STANDING_FORMAT, row.standingLabel, row.pct)
+        local label = flat and wt.priceRowLabel(row, best) or row.name
+        local radio = root:CreateRadio(label, isChoice, setChoice, row.key)
+        if not flat then radio:AddInitializer(function(button)
+            if row.price == best then button.fontString:SetTextColor(GREEN_FONT_COLOR:GetRGB()) end
+            local right = button:AttachFontString()
+            right:SetHeight(20)
+            right:SetPoint("RIGHT")
+            right:SetJustifyH("RIGHT")
+            right:SetText(standing)
+            -- aligned text needs an explicit width: radio dot + gap + both strings
+            return 40 + button.fontString:GetUnboundedStringWidth() + right:GetUnboundedStringWidth(), 20
+        end) end
+    end
+end
+
+local BEAST_TRAINING_SPELL = 5149
+function wt.needsBeastTraining()
+    return WT_NeedsToOpenBeastTraining == true and wt.hasBeastTraining()
+end
+function wt.hasBeastTraining()
+    return C_SpellBook.IsSpellKnown(BEAST_TRAINING_SPELL, Enum.SpellBookSpellBank.Player)
+end
+function wt.openBeastTraining()
+    CastSpellByID(BEAST_TRAINING_SPELL)
+end
+
+function wt.isPreviouslyLearnedAbility(spellId)
+    if wt.overriddenSpellsMap == nil or not wt.overriddenSpellsMap[spellId] then
+        return false
+    end
+
+    local spellIndex, knownIndex = 0, 0
+    for i, otherId in ipairs(wt.overriddenSpellsMap[spellId]) do
+        if otherId == spellId then spellIndex = i end
+        if (C_SpellBook.IsSpellInSpellBook(otherId, Enum.SpellBookSpellBank.Player, false)
+            or C_SpellBook.IsSpellKnown(otherId, Enum.SpellBookSpellBank.Player)) then
+            knownIndex = i
+        end
+    end
+    return spellIndex <= knownIndex
+end
+
+function wt.isAbilityKnown(spellId)
+    if (C_SpellBook.IsSpellInSpellBook(spellId, Enum.SpellBookSpellBank.Player, false)
+        or C_SpellBook.IsSpellKnown(spellId, Enum.SpellBookSpellBank.Player) or
+        wt.isPreviouslyLearnedAbility(spellId)) then return true end
+    if (not wt:IsPetAbility(spellId)) then return false end
+    if wt:IsPetAbilityLearned(spellId) then return true end
+    local info = wt:SpellInfo(spellId)
+
+    if info.subText == nil or wt.learnedPetAbilityMap[info.name] == nil then
+        return false
+    end
+
+    return wt.learnedPetAbilityMap[info.name][info.subText]
+end

@@ -1,0 +1,11 @@
+## Interface: 11509, 16001, 20506, 40402, 50504, 120105
+## Notes: A simple chat copy paste addon.
+## Title: ChatCopyPaste
+## Author: Novaspark-Arugal OCE
+## Category: Chat
+## Version: 1.41
+## SavedVariables: CCPOptions
+## IconTexture: Interface\AddOns\ChatCopyPaste\Media\copypaste.tga
+
+embeds.xml
+ChatCopyPaste.lua

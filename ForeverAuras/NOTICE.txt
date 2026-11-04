@@ -1,0 +1,17 @@
+ForeverAuras is an independent fork of M33kAuras, derived from WeakAuras.
+
+Original projects and contributors:
+  WeakAuras contributors: https://github.com/WeakAuras/WeakAuras2
+  m33shoq and M33kAuras contributors: https://github.com/m33shoq/M33kAuras
+
+ForeverAuras is not an official release of, or endorsed by, either project.
+The addon code and ForeverAuras modifications are distributed under the GNU
+General Public License version 2; see LICENSE. Existing copyright notices
+and warranty disclaimers remain applicable. There is no warranty.
+
+Bundled libraries, fonts, sounds and other media retain their respective
+licences. See their source headers, accompanying licence files, and
+Media/Provided by.txt. The main addon licence does not replace those terms.
+
+The ForeverAuras logo at Media/Textures/foreverauras_logo.tga was added for
+this fork on 2026-09-18 and is not an upstream WeakAuras or M33kAuras logo.

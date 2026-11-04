@@ -1,0 +1,25 @@
+## Interface: 20506
+## Author: Okrah, Lag
+## Version: 12902
+## Dependencies: AtlasLootContinued
+## LoadOnDemand: 1
+
+## Title: AtlasLoot Continued |cFF0099FF[Crafting]|r
+## Title-deDE: AtlasLoot Continued |cFF0099FF[Berufe]|r
+## Title-esES: AtlasLoot Continued |cFF0099FF[Fabricados]|r
+## Title-frFR: AtlasLoot Continued |cFF0099FF[Artisanat]|r
+## Notes: AtlasLoot loot tables of Crafting Items
+## Notes-deDE: AtlasLoot Beuteverzeichnis der Berufe
+## Notes-esES: AtlasLoot tablas de botín de Fabricados
+## Notes-frFR: Tables de butin des objets d'artisanat
+
+## X-Category: Map
+## X-License: GPL v2
+
+## X-AtlasLoot-LootModule: 1
+
+Locales\Locales.xml
+
+private.lua
+data.lua
+data-tbc.lua

@@ -1,0 +1,24 @@
+﻿## Interface: 20506
+## Author: Okrah, Lag
+## Version: 12902
+## Dependencies: AtlasLootContinued
+## LoadOnDemand: 1
+
+## Title: AtlasLoot Continued |cFF0099FF[Data]|r
+## Title-deDE: AtlasLoot Continued |cFF0099FF[Daten]|r
+## Title-esES: AtlasLoot Continued |cFF0099FF[Datos]|r
+## Title-frFR: AtlasLoot Continued |cFF0099FF[Données]|r
+## Notes: AtlasLoot data module
+## Notes-deDE: AtlasLoot Datenmodul
+## Notes-esES: AtlasLoot módulo de datos
+## Notes-frFR: Module de données
+
+## X-Category: Map
+## X-License: GPL v2
+
+core.lua
+
+locales.lua
+items.lua
+source.lua
+source-tbc.lua

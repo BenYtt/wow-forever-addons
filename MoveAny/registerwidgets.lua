@@ -1,0 +1,2778 @@
+local _, MoveAny = ...
+local hooksecurefunc = MoveAny.hooksecurefunc
+local ma_ismoving = {}
+local ma_setup = {}
+local ma_enablemouse = {}
+local ma_scri = {}
+local ma_setscale_ele = {}
+local ma_setlayer_ele = {}
+local framelevel = 1100
+local btnsize = 24
+local ses = {}
+local runSelectedReset = false
+local fnt = {}
+local MACurrentEle = nil
+local MAEF = {}
+local startRegisterWidget = false
+local missingWidgets = {}
+local giveUpWidgets = {}
+local editModeWidgets = {}
+local giveUpScheduled = false
+local retryFrame = CreateFrame("Frame")
+local function GiveUpMissingWidgets()
+	for name, tab in pairs(missingWidgets) do
+		giveUpWidgets[name] = tab
+		missingWidgets[name] = nil
+	end
+end
+
+MoveAny:OnEvent(retryFrame, function(sel, event, ...)
+	if event == "PLAYER_ENTERING_WORLD" then
+		if giveUpScheduled then return end
+		giveUpScheduled = true
+		MoveAny:After(60, GiveUpMissingWidgets, "Widgets GiveUp")
+		return
+	end
+
+	for name, tab in pairs(giveUpWidgets) do
+		if missingWidgets[name] == nil then missingWidgets[name] = tab end
+		giveUpWidgets[name] = nil
+	end
+
+	MoveAny:SafeRetryRegisterWidgets()
+	if giveUpScheduled then MoveAny:After(5, GiveUpMissingWidgets, "Widgets GiveUp 2") end
+end, "retryFrame")
+
+MoveAny:RegisterEvent(retryFrame, "PLAYER_ENTERING_WORLD")
+function MoveAny:GetMissingWidgets()
+	return missingWidgets
+end
+
+local retryLocked = false
+local retrySnapshot = {}
+function MoveAny:RetryRegisterWidgets()
+	if retryLocked then return end
+	retryLocked = true
+	local count = 0
+	for _, tab in pairs(MoveAny:GetMissingWidgets()) do
+		count = count + 1
+		retrySnapshot[count] = tab
+	end
+
+	for i = 1, count do
+		local tab = retrySnapshot[i]
+		retrySnapshot[i] = nil
+		local ok, err = pcall(MoveAny.RegisterWidget, MoveAny, tab)
+		if not ok then MoveAny:MSG("[RegisterWidget] FAILED", tab and tab.name, err) end
+	end
+
+	retryLocked = false
+end
+
+function MoveAny:SafeRetryRegisterWidgets()
+	if not startRegisterWidget then return end
+	MoveAny:RetryRegisterWidgets()
+end
+
+local retryPending = false
+local retryThrottle = 0.1
+local nextRetryAt = 0
+hooksecurefunc("CreateFrame", function(...)
+	if not startRegisterWidget then return end
+	if retryPending then return end
+	if retryLocked then return end
+	if next(missingWidgets) == nil then return end
+	retryPending = true
+	local delay = nextRetryAt - GetTime()
+	if delay < 0 then delay = 0 end
+	MoveAny:After(delay, function()
+		retryPending = false
+		nextRetryAt = GetTime() + retryThrottle
+		MoveAny:SafeRetryRegisterWidgets()
+	end, "CreateFrame RetryRegisterWidgets")
+end)
+
+MoveAny:After(2, function() MoveAny:RetryRegisterWidgets() end, "Init startRegisterWidget 1")
+function MoveAny:ReloadEditModeWidgets()
+	if InCombatLockdown() then return end
+	local tabs = {}
+	for name, tab in pairs(editModeWidgets) do
+		local enabled1, forced1 = MoveAny:IsInEditModeEnabled(name)
+		local enabled2, forced2 = MoveAny:IsInEditModeEnabled(MoveAny:Trans(tab.lstr))
+		if not ((enabled1 or enabled2) and (not forced1 and not forced2)) then tinsert(tabs, tab) end
+	end
+
+	for _, tab in ipairs(tabs) do
+		editModeWidgets[tab.name] = nil
+		if tab.editModeReload then tab.editModeReload() end
+		local ok, err = pcall(MoveAny.RegisterWidget, MoveAny, tab)
+		if not ok then MoveAny:MSG("[RegisterWidget] FAILED", tab.name, err) end
+	end
+
+	for name, info in pairs(MoveAny.editModeConflicts) do
+		if not MoveAny:IsEditModeConflict(name, info.lstr) then MoveAny.editModeConflicts[name] = nil end
+	end
+
+	MoveAny:UpdateEditModeConflictWindow()
+	MoveAny:CheckEditModeTakeover()
+end
+
+function MoveAny:HookEditModeBarSetup()
+	if MoveAny.editModeBarSetupHooked then return end
+	local accountSettings = EditModeManagerFrame and EditModeManagerFrame.AccountSettings
+	if not accountSettings or not accountSettings.EditModeFrameSetup then return end
+	MoveAny.editModeBarSetupHooked = true
+	local bars = {
+		{
+			key = "STANCEBARANCHOR",
+			ele = "StanceBarAnchor",
+			bar = "StanceBar"
+		},
+		{
+			key = "PETBAR",
+			ele = "PetActionBar",
+			bar = "PetActionBar"
+		},
+	}
+
+	hooksecurefunc(accountSettings, "EditModeFrameSetup", function(sel)
+		for _, info in ipairs(bars) do
+			local bar = _G[info.bar]
+			if bar and MoveAny:GetDragFromName(info.ele) and MoveAny:IsEnabled(info.key, false, true) then
+				local enabled, forced = MoveAny:IsInEditModeEnabled(info.ele)
+				if not enabled and not forced then
+					local cb = sel.settingsCheckButtons and sel.settingsCheckButtons[info.bar]
+					if cb and cb:IsControlChecked() then cb:SetControlChecked(false) end
+					if bar.Selection then bar.Selection:Hide() end
+				end
+			end
+		end
+	end)
+end
+
+MoveAny.editModeConflicts = {}
+function MoveAny:IsEditModeConflict(name, lstr)
+	local enabled1, forced1 = MoveAny:IsInEditModeEnabled(name)
+	local enabled2, forced2 = false, false
+	if lstr then enabled2, forced2 = MoveAny:IsInEditModeEnabled(lstr) end
+	return (enabled1 or enabled2) and not forced1 and not forced2
+end
+
+function MoveAny:AddEditModeConflict(name, label, lstr)
+	if MoveAny.editModeConflicts[name] == nil then
+		MoveAny.editModeConflicts[name] = {
+			label = label,
+			lstr = lstr
+		}
+	end
+
+	MoveAny:QueueEditModeConflictWindow()
+end
+
+function MoveAny:QueueEditModeConflictWindow()
+	if MoveAny.editModeConflictQueued then return end
+	MoveAny.editModeConflictQueued = true
+	MoveAny:After(1, function()
+		MoveAny.editModeConflictQueued = false
+		MoveAny:UpdateEditModeConflictWindow()
+	end, "UpdateEditModeConflictWindow")
+end
+
+function MoveAny:GetEditModeConflictEntries()
+	local entries = {}
+	for name, tab in pairs(editModeWidgets) do
+		local label = MoveAny:Trans(tab.lstr)
+		if tab.lstri then label = format(label, tab.lstri) end
+		entries[name] = {
+			label = label,
+			lstr = label
+		}
+	end
+
+	for name, info in pairs(MoveAny.editModeConflicts) do
+		if entries[name] == nil then entries[name] = info end
+	end
+
+	local list = {}
+	for name, info in pairs(entries) do
+		tinsert(list, {
+			name = name,
+			label = info.label or name,
+			lstr = info.lstr,
+			open = MoveAny:IsEditModeConflict(name, info.lstr),
+			blizz = MoveAny:GetEditModeSettingLabel(name) or (info.lstr and MoveAny:GetEditModeSettingLabel(info.lstr))
+		})
+	end
+
+	table.sort(list, function(a, b) return a.label < b.label end)
+	return list
+end
+
+function MoveAny:UpdateEditModeConflictWindow()
+	local list = MoveAny:GetEditModeConflictEntries()
+	local win = MoveAny.editModeConflictWindow
+	if #list == 0 then
+		if win then win:Hide() end
+		return
+	end
+
+	if win == nil then
+		win = MoveAny:CreateEditModeInfoWindow("MAEditModeConflictWindow", "EDITMODECONFLICTPOS", "LID_EDITMODECONFLICTTITLE", 150)
+		MoveAny.editModeConflictWindow = win
+	end
+
+	win.info:SetText(MoveAny:Trans("LID_EDITMODECONFLICTTEXT"))
+	local lines = {}
+	for _, entry in ipairs(list) do
+		local text = entry.label
+		if entry.blizz and entry.blizz ~= "" then text = format(MoveAny:Trans("LID_EDITMODECONFLICTENTRY"), entry.label, entry.blizz) end
+		if entry.open then
+			tinsert(lines, "|cFFFF4040- " .. text .. "|r")
+		else
+			tinsert(lines, "|cFF40FF40- " .. text .. "|r")
+		end
+	end
+
+	win.list:SetText(table.concat(lines, "\n"))
+	win.hint:SetText(MoveAny:Trans("LID_EDITMODECONFLICTHINT"))
+	win:UpdateHeight()
+	win:Show()
+end
+
+function MoveAny:CreateEditModeInfoWindow(name, posKey, titleKey, offsetY)
+	local pos = MoveAny:MAGV(posKey, nil)
+	local pTab = {"CENTER", UIParent, "CENTER", 0, offsetY}
+	if type(pos) == "table" and pos[1] then pTab = {pos[1], UIParent, pos[2], pos[3], pos[4]} end
+	local win = MoveAny:CreateUIWindow({
+		["name"] = name,
+		["parent"] = UIParent,
+		["pTab"] = pTab,
+		["width"] = 460,
+		["height"] = 200,
+		["resizable"] = false,
+		["title"] = MoveAny:Trans(titleKey),
+		["onMove"] = function(p1, p3, p4, p5) MoveAny:MASV(posKey, {p1, p3, p4, p5}) end,
+		["onClose"] = function(sel) sel:Hide() end,
+	})
+
+	win:SetFrameStrata("DIALOG")
+	if win.content then win.content:Hide() end
+	if win.scrollBar then win.scrollBar:Hide() end
+	for _, suffix in ipairs({"ScrollBox", "ScrollBar", "Scroll"}) do
+		local part = _G[name .. suffix]
+		if part then part:Hide() end
+	end
+
+	local holder = CreateFrame("Frame", nil, win)
+	holder:SetPoint("TOPLEFT", win, "TOPLEFT", 16, -36)
+	holder:SetPoint("BOTTOMRIGHT", win, "BOTTOMRIGHT", -16, 12)
+	holder:SetFrameLevel(win:GetFrameLevel() + 20)
+	win.holder = holder
+	win.info = holder:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+	win.info:SetPoint("TOPLEFT", holder, "TOPLEFT", 0, 0)
+	win.info:SetWidth(428)
+	win.info:SetJustifyH("LEFT")
+	win.list = holder:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+	win.list:SetPoint("TOPLEFT", win.info, "BOTTOMLEFT", 0, -12)
+	win.list:SetWidth(428)
+	win.list:SetJustifyH("LEFT")
+	win.hint = holder:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+	win.hint:SetPoint("TOPLEFT", win.list, "BOTTOMLEFT", 0, -12)
+	win.hint:SetWidth(428)
+	win.hint:SetJustifyH("LEFT")
+	win.extraHeight = 0
+	function win:UpdateHeight()
+		self:SetHeight(36 + self.info:GetStringHeight() + 12 + self.list:GetStringHeight() + 12 + self.hint:GetStringHeight() + 20 + self.extraHeight)
+	end
+
+	return win
+end
+
+MoveAny.elementLoaders = {}
+function MoveAny:AddElementLoader(func, noLive)
+	local loader = {
+		func = func,
+		keys = {},
+		widgets = {},
+		created = {},
+		gen = 1,
+		active = false,
+		noLive = noLive
+	}
+
+	tinsert(MoveAny.elementLoaders, loader)
+	MoveAny:RunElementLoader(loader)
+end
+
+function MoveAny:RunElementLoader(loader)
+	local prev = MoveAny.currentElementLoader
+	local prevRunning = loader.running
+	MoveAny.currentElementLoader = loader
+	loader.running = true
+	xpcall(loader.func, geterrorhandler())
+	loader.running = prevRunning
+	MoveAny.currentElementLoader = prev
+end
+
+function MoveAny:GuardElementCallback(callback)
+	local loader = MoveAny.currentElementLoader
+	if loader == nil or type(callback) ~= "function" then return callback end
+	local gen = loader.gen
+	return function(...)
+		if loader.gen ~= gen then return end
+		local prev = MoveAny.currentElementLoader
+		MoveAny.currentElementLoader = loader
+		local _, a, b, c, d = xpcall(callback, geterrorhandler(), ...)
+		MoveAny.currentElementLoader = prev
+		return a, b, c, d
+	end
+end
+
+function MoveAny:RecordElementKey(key, result)
+	local loader = MoveAny.currentElementLoader
+	if loader == nil or not loader.running or (MoveAny.inRegisterWidget or 0) > 0 then return end
+	loader.keys[key] = true
+	if result then loader.active = true end
+end
+
+hooksecurefunc(
+	"CreateFrame",
+	function(_, frameName)
+		local loader = MoveAny.currentElementLoader
+		if loader and type(frameName) == "string" then loader.created[frameName] = true end
+	end
+)
+
+MoveAny.widgetOrigState = {}
+function MoveAny:CaptureWidgetState(name, frame)
+	if MoveAny.widgetOrigState[name] or frame == nil or frame.GetPoint == nil then return end
+	local state = {
+		parent = frame:GetParent(),
+		scale = frame:GetScale(),
+		alpha = frame:GetAlpha(),
+		points = {}
+	}
+
+	local ok = pcall(
+		function()
+			for i = 1, frame:GetNumPoints() do
+				local point = {frame:GetPoint(i)}
+				for _, v in pairs(point) do
+					if issecretvalue and issecretvalue(v) then error("secret") end
+				end
+
+				state.points[i] = point
+			end
+		end
+	)
+
+	if not ok then state.points = nil end
+	if issecretvalue and (issecretvalue(state.scale) or issecretvalue(state.alpha)) then
+		state.scale = nil
+		state.alpha = nil
+	end
+
+	MoveAny.widgetOrigState[name] = state
+end
+
+function MoveAny:RestoreWidgetState(name, frame)
+	local state = MoveAny.widgetOrigState[name]
+	if state == nil or frame == nil then return end
+	if state.parent and frame:GetParent() ~= state.parent then frame:SetParent(state.parent) end
+	if state.points and #state.points > 0 then
+		local ClearAllPoints = frame.ClearAllPointsBase or frame.ClearAllPoints
+		local SetPoint = frame.SetPointBase or frame.SetPoint
+		ClearAllPoints(frame)
+		for _, point in ipairs(state.points) do
+			SetPoint(frame, unpack(point))
+		end
+	end
+
+	if state.scale and state.scale > 0 then frame:SetScale(state.scale) end
+	if state.alpha then frame:SetAlpha(state.alpha) end
+end
+
+function MoveAny:GetElementLoaders(key)
+	local list = {}
+	for _, loader in ipairs(MoveAny.elementLoaders) do
+		if loader.keys[key] then tinsert(list, loader) end
+	end
+
+	return list
+end
+
+function MoveAny:CanLoadElementLive(key)
+	local list = MoveAny:GetElementLoaders(key)
+	if #list == 0 then return false end
+	for _, loader in ipairs(list) do
+		if loader.active or loader.noLive then return false end
+	end
+
+	return true
+end
+
+local function CountKeys(tab)
+	local count = 0
+	for _ in pairs(tab) do
+		count = count + 1
+	end
+
+	return count
+end
+
+function MoveAny:LoadElementLive(key)
+	if InCombatLockdown() or not MoveAny:CanLoadElementLive(key) then return false end
+	local registered = CountKeys(MoveAny.registeredWidgets)
+	local skipped = CountKeys(editModeWidgets)
+	for _, loader in ipairs(MoveAny:GetElementLoaders(key)) do
+		MoveAny:RunElementLoader(loader)
+	end
+
+	MoveAny:RetryRegisterWidgets()
+	if MoveAny.UpdateEditorVisibility then MoveAny:UpdateEditorVisibility() end
+	return CountKeys(MoveAny.registeredWidgets) > registered or CountKeys(editModeWidgets) > skipped
+end
+
+MoveAny.unloadIgnoreKeys = {
+	MALOCK = true,
+	MAPROFILES = true,
+	HIDEHIDDENFRAMES = true,
+	SNAPTOELEMENTS = true,
+	SHOWMINIMAPBUTTON = true
+}
+
+local function HasForeignChildren(loader)
+	for frameName in pairs(loader.created) do
+		local frame = _G[frameName]
+		if type(frame) == "table" and frame.GetChildren then
+			for _, child in ipairs({frame:GetChildren()}) do
+				local childName = child.GetName and child:GetName()
+				if childName and not loader.created[childName] and not string.find(childName, "_MA_DRAG", 1, true) then return true end
+			end
+		end
+	end
+
+	return false
+end
+
+function MoveAny:CanUnloadElementLive(key)
+	if InCombatLockdown() then return false end
+	local list = MoveAny:GetElementLoaders(key)
+	if #list == 0 then return false end
+	for _, loader in ipairs(list) do
+		if loader.noLive then return false end
+		for otherKey in pairs(loader.keys) do
+			if otherKey ~= key and not MoveAny.unloadIgnoreKeys[otherKey] and MoveAny:IsEnabled(otherKey, false, true) then return false end
+		end
+
+		if HasForeignChildren(loader) then return false end
+	end
+
+	return true
+end
+
+function MoveAny:ReleaseElementLoader(loader)
+	loader.gen = loader.gen + 1
+	for name, tab in pairs(loader.widgets) do
+		MoveAny:ReleaseWidget(name, loader.created[name])
+		if tab.onRelease then xpcall(tab.onRelease, geterrorhandler()) end
+	end
+
+	for name, tab in pairs(editModeWidgets) do
+		if tab.loader == loader then editModeWidgets[name] = nil end
+	end
+
+	for name, tab in pairs(missingWidgets) do
+		if tab.loader == loader then missingWidgets[name] = nil end
+	end
+
+	for name, tab in pairs(giveUpWidgets) do
+		if tab.loader == loader then giveUpWidgets[name] = nil end
+	end
+
+	for frameName in pairs(loader.created) do
+		local frame = _G[frameName]
+		if type(frame) == "table" and frame.Hide and frame.IsShown and not frame:IsProtected() and frame:IsShown() then
+			frame.maReleasedHidden = true
+			frame:Hide()
+		end
+	end
+
+	loader.widgets = {}
+	loader.active = false
+end
+
+function MoveAny:UnloadElementLive(key)
+	if not MoveAny:CanUnloadElementLive(key) then return false end
+	local list = MoveAny:GetElementLoaders(key)
+	for i = #list, 1, -1 do
+		MoveAny:ReleaseElementLoader(list[i])
+	end
+
+	if MoveAny.UpdateEditorVisibility then MoveAny:UpdateEditorVisibility() end
+	if MoveAny.SafeUpdateAlphas and MoveAny.GetEnumAlpha then MoveAny:SafeUpdateAlphas(MoveAny:GetEnumAlpha().ADDED) end
+	MoveAny:QueueEditModeConflictWindow()
+	return true
+end
+
+MoveAny.registeredWidgets = {}
+function MoveAny:GetWidgetEnableKey(tab)
+	if type(tab.lstr) ~= "string" or string.sub(tab.lstr, 1, 4) ~= "LID_" then return nil end
+	local key = string.sub(tab.lstr, 5)
+	if tab.lstri then key = key .. tab.lstri end
+	return key
+end
+
+function MoveAny:CheckEditModeTakeover()
+	if InCombatLockdown() then return end
+	local list = {}
+	for name, tab in pairs(MoveAny.registeredWidgets) do
+		local keys = tab.editModeKeys
+		if keys == nil then
+			local key = MoveAny:GetWidgetEnableKey(tab)
+			if key then keys = {key} end
+		end
+
+		local anyEnabled = false
+		for _, key in ipairs(keys or {}) do
+			if MoveAny:IsEnabled(key, false, true) then anyEnabled = true end
+		end
+
+		local label = MoveAny:Trans(tab.lstr)
+		if tab.lstri then label = format(label, tab.lstri) end
+		if anyEnabled and MoveAny:IsEditModeConflict(name, label) then
+			tinsert(list, {
+				keys = keys,
+				label = label,
+				blizz = MoveAny:GetEditModeSettingLabel(name) or MoveAny:GetEditModeSettingLabel(label)
+			})
+		end
+	end
+
+	local win = MoveAny.editModeTakeoverWindow
+	if #list == 0 then
+		if win then win:Hide() end
+		return
+	end
+
+	table.sort(list, function(a, b) return a.label < b.label end)
+	if win == nil then
+		win = MoveAny:CreateEditModeInfoWindow("MAEditModeTakeoverWindow", "EDITMODETAKEOVERPOS", "LID_EDITMODETAKEOVERTITLE", 150)
+		MoveAny.editModeTakeoverWindow = win
+		win.extraHeight = 34
+		win.ok = CreateFrame("Button", nil, win.holder, "UIPanelButtonTemplate")
+		win.ok:SetSize(140, 24)
+		win.ok:SetPoint("BOTTOMRIGHT", win.holder, "BOTTOM", -6, 0)
+		win.ok:SetText(OKAY or "OK")
+		win.ok:SetScript("OnClick", function()
+			for _, entry in ipairs(win.entries or {}) do
+				for _, key in ipairs(entry.keys) do
+					if MoveAny:IsEnabled(key, false, true) then MoveAny:SetEnabled(key, false) end
+				end
+			end
+
+			ReloadUI()
+		end)
+
+		win.cancel = CreateFrame("Button", nil, win.holder, "UIPanelButtonTemplate")
+		win.cancel:SetSize(140, 24)
+		win.cancel:SetPoint("BOTTOMLEFT", win.holder, "BOTTOM", 6, 0)
+		win.cancel:SetText(CANCEL or "Cancel")
+		win.cancel:SetScript("OnClick", function() win:Hide() end)
+	end
+
+	win.entries = list
+	win.info:SetText(MoveAny:Trans("LID_EDITMODETAKEOVERTEXT"))
+	local lines = {}
+	for _, entry in ipairs(list) do
+		local text = entry.label
+		if entry.blizz and entry.blizz ~= "" then text = format(MoveAny:Trans("LID_EDITMODECONFLICTENTRY"), entry.label, entry.blizz) end
+		tinsert(lines, "|cFFFFD100- " .. text .. "|r")
+	end
+
+	win.list:SetText(table.concat(lines, "\n"))
+	win.hint:SetText(MoveAny:Trans("LID_EDITMODETAKEOVERHINT"))
+	win:UpdateHeight()
+	win:Show()
+end
+
+MoveAny:After(7, function()
+	startRegisterWidget = true
+	MoveAny:RegisterEvent(retryFrame, "ADDON_LOADED")
+	MoveAny:RetryRegisterWidgets()
+	if EditModeManagerFrame and EditModeManagerFrame.ExitEditMode and MoveAny:IsBlizEditModeEnabled() then
+		hooksecurefunc(EditModeManagerFrame, "ExitEditMode", function() MoveAny:After(0.5, function() MoveAny:ReloadEditModeWidgets() end, "ReloadEditModeWidgets") end)
+		if EditModeManagerFrame.OnAccountSettingChanged then hooksecurefunc(EditModeManagerFrame, "OnAccountSettingChanged", function() if MoveAny.editModeConflictWindow and MoveAny.editModeConflictWindow:IsShown() then MoveAny:QueueEditModeConflictWindow() end end) end
+	end
+
+	MoveAny:HookEditModeBarSetup()
+	MoveAny:QueueEditModeConflictWindow()
+end, "Init startRegisterWidget 2")
+
+function MoveAny:GetEleFrames()
+	return MAEF
+end
+
+function MoveAny:GetCurrentEle()
+	return MACurrentEle
+end
+
+function MoveAny:AddFrameName(frame, name)
+	if frame == nil then
+		MoveAny:MSG("AddFrameName: frame is nil")
+		return false
+	end
+
+	if name == nil then
+		MoveAny:MSG("AddFrameName: name is nil")
+		return false
+	end
+
+	fnt[frame] = name
+	return true
+end
+
+function MoveAny:GetFrameName(frame)
+	if frame == nil then
+		MoveAny:MSG("GetFrameName: frame is nil")
+		return "FAILED"
+	end
+	return fnt[frame]
+end
+
+function MoveAny:UpdateDragLevel(dragframe)
+	if dragframe == nil or dragframe.SetFrameLevel == nil then return end
+	local scale = dragframe:GetEffectiveScale() or 1
+	local w, h = dragframe:GetWidth(), dragframe:GetHeight()
+	if MoveAny:IsSecret(scale) or MoveAny:IsSecret(w) or MoveAny:IsSecret(h) then return end
+	local area = math.max(1, (w or 1) * (h or 1) * scale * scale)
+	if dragframe.maDragArea == area then return end
+	dragframe.maDragArea = area
+	local frames = {}
+	local found = false
+	for _, frame in pairs(MoveAny:GetDragFrames()) do
+		tinsert(frames, frame)
+		if frame == dragframe then found = true end
+	end
+
+	if not found then tinsert(frames, dragframe) end
+	table.sort(frames, function(a, b)
+		local aArea = a.maDragArea or 1
+		local bArea = b.maDragArea or 1
+		if aArea == bArea then return (a.maName or "") < (b.maName or "") end
+		return aArea > bArea
+	end)
+	for index, frame in ipairs(frames) do
+		frame:SetFrameLevel(120 + index * 3)
+	end
+end
+
+local eleBaseLayer = {}
+function MoveAny:StoreEleBaseLayer(name, frame)
+	if frame == nil or frame.GetFrameStrata == nil then return end
+	if eleBaseLayer[name] ~= nil then return end
+	local strata = frame:GetFrameStrata()
+	local level = frame:GetFrameLevel()
+	if MoveAny:IsSecret(strata) or MoveAny:IsSecret(level) then return end
+	if type(strata) ~= "string" or type(level) ~= "number" then return end
+	eleBaseLayer[name] = {strata, level}
+end
+
+function MoveAny:ApplyEleLayer(name, frame, restore)
+	frame = frame or MoveAny:GetFrameByName(name)
+	if frame == nil or frame.SetFrameStrata == nil then return end
+	if ma_setlayer_ele[frame] then return end
+	local strata, level = MoveAny:GetEleLayer(name)
+	if strata == "" and level <= 0 and not restore then return end
+	MoveAny:SafeExec(frame, function()
+		ma_setlayer_ele[frame] = true
+		local st, lvl = MoveAny:GetEleLayer(name)
+		local base = eleBaseLayer[name]
+		if not restore then base = nil end
+		if st == "" then
+			st = nil
+			if base then st = base[1] end
+		end
+
+		if lvl <= 0 then
+			lvl = nil
+			if base then lvl = base[2] end
+		end
+
+		if st then frame:SetFrameStrata(st) end
+
+		if lvl then frame:SetFrameLevel(lvl) end
+
+		ma_setlayer_ele[frame] = false
+	end, "ApplyEleLayer " .. tostring(name))
+end
+
+local ARROW_UP = "Interface\\ChatFrame\\UI-ChatIcon-ScrollUp-Up"
+local ARROW_UP_PUSHED = "Interface\\ChatFrame\\UI-ChatIcon-ScrollUp-Down"
+local ARROW_DOWN = "Interface\\ChatFrame\\UI-ChatIcon-ScrollDown-Up"
+local ARROW_DOWN_PUSHED = "Interface\\ChatFrame\\UI-ChatIcon-ScrollDown-Down"
+local ARROW_LEFT = "Interface\\Buttons\\UI-SpellbookIcon-PrevPage-Up"
+local ARROW_RIGHT = "Interface\\Buttons\\UI-SpellbookIcon-NextPage-Up"
+function MoveAny:AddElePosition(win, name)
+	local label = MoveAny:Trans("LID_POSITION")
+	local height = 18 + btnsize * 5
+	local holder = CreateFrame("Frame", nil, win.content)
+	holder:SetSize(math.max(1, win.contentWidth - 8), height)
+	holder.Label = holder:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+	holder.Label:SetPoint("TOPLEFT", holder, "TOPLEFT", 0, 0)
+	function holder:UpdateText()
+		local _, _, _, p4, p5 = MoveAny:GetElePoint(name)
+		holder.Label:SetText(format("%s X: %d Y: %d", label, p4 or 0, p5 or 0))
+	end
+
+	local function Arrow(col, row, x, y, texNor, texPus)
+		local btn = MoveAny:CreateButton(nil, holder, true)
+		btn:SetNormalTexture(texNor)
+		btn:SetPushedTexture(texPus)
+		btn:SetHighlightTexture("Interface\\Buttons\\UI-Common-MouseHilight")
+		btn:SetSize(btnsize, btnsize)
+		btn:SetPoint("TOPLEFT", holder, "TOPLEFT", col * btnsize, -18 - row * btnsize)
+		btn:SetScript("OnClick", function()
+			local p1, _, p3, p4, p5 = MoveAny:GetElePoint(name)
+			if p1 and p3 and p4 and p5 then MoveAny:SetElePoint(name, p1, MoveAny:GetMainPanel(), p3, p4 + x, p5 + y) end
+			holder:UpdateText()
+		end)
+		return btn
+	end
+
+	Arrow(2, 0, 0, 5, ARROW_UP, ARROW_UP_PUSHED)
+	Arrow(2, 1, 0, 1, ARROW_UP, ARROW_UP_PUSHED)
+	Arrow(0, 2, -5, 0, ARROW_LEFT, ARROW_LEFT)
+	Arrow(1, 2, -1, 0, ARROW_LEFT, ARROW_LEFT)
+	Arrow(3, 2, 1, 0, ARROW_RIGHT, ARROW_RIGHT)
+	Arrow(4, 2, 5, 0, ARROW_RIGHT, ARROW_RIGHT)
+	Arrow(2, 3, 0, -1, ARROW_DOWN, ARROW_DOWN_PUSHED)
+	Arrow(2, 4, 0, -5, ARROW_DOWN, ARROW_DOWN_PUSHED)
+	holder:UpdateText()
+	MoveAny.UI:Add(win, holder, height, label, true, "POSITION")
+	return holder
+end
+
+function MoveAny:AddEleScale(win, name)
+	local label = MoveAny:Trans("LID_SCALE")
+	local height = 18 + btnsize
+	local width = btnsize * 2
+	local holder = CreateFrame("Frame", nil, win.content)
+	holder:SetSize(math.max(1, win.contentWidth - 8), height)
+	holder.Label = holder:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+	holder.Label:SetPoint("TOPLEFT", holder, "TOPLEFT", 0, 0)
+	function holder:UpdateText()
+		holder.Label:SetText(format("%s: %0.2f", label, MoveAny:GetEleScale(name) or 1))
+	end
+
+	local function Button(index, text, func)
+		local btn = MoveAny:CreateButton(nil, holder)
+		btn:SetSize(width, btnsize)
+		btn:SetPoint("TOPLEFT", holder, "TOPLEFT", index * (width + 3), -18)
+		btn:SetText(text)
+		btn:SetScript("OnClick", function()
+			func()
+			holder:UpdateText()
+		end)
+		return btn
+	end
+
+	local function Step(index, step)
+		return Button(index, format("%+0.2f", step), function()
+			local val = tonumber(format("%.2f", (MoveAny:GetEleScale(name) or 1) + step))
+			if val == nil then return end
+			if val < 0.1 then val = 0.1 end
+			MoveAny:SetEleScale(name, val)
+		end)
+	end
+
+	Step(0, -1)
+	Step(1, -0.1)
+	Step(2, -0.01)
+	Button(3, format("%0.2f", 1), function() MoveAny:SetEleScale(name, 1) end)
+	Step(4, 0.01)
+	Step(5, 0.1)
+	Step(6, 1)
+	holder:UpdateText()
+	MoveAny.UI:Add(win, holder, height, label, true, "SCALE")
+	return holder
+end
+
+function MoveAny:AddEleReset(win, name)
+	local label = MoveAny:Trans("LID_RESETELEMENT")
+	local holder = CreateFrame("Frame", nil, win.content)
+	holder:SetSize(math.max(1, win.contentWidth - 8), MoveAny.UI.ROW)
+	local btn = MoveAny:CreateReloadButton(nil, holder)
+	btn:SetSize(btnsize * 8, MoveAny.UI.ROW)
+	btn:SetPoint("TOPLEFT", holder, "TOPLEFT", 0, 0)
+	btn:SetText(label)
+	btn:SetScript("PreClick", function() MoveAny:ResetElement(name) end)
+
+	holder.control = btn
+	MoveAny.UI:Add(win, holder, MoveAny.UI.ROW, label, true, "RESETELEMENT")
+	return holder
+end
+
+local function AddEleCategory(win, key, label, level)
+	return win:AddCategory({
+		["label"] = label or MoveAny:Trans("LID_" .. key),
+		["level"] = level or 1,
+		["key"] = "ELEOPT" .. key,
+		["search"] = key,
+	})
+end
+
+local function AddEleSlider(win, name, key, value, vmin, vmax, step, decimals, func, label)
+	return win:AddSlider({
+		["label"] = label or ("LID_" .. key),
+		["search"] = key,
+		["value"] = MoveAny:GetEleOption(name, key, value, "MenuOptions " .. key),
+		["min"] = vmin,
+		["max"] = vmax,
+		["step"] = step,
+		["decimals"] = decimals,
+		["func"] = function(val)
+			MoveAny:SetEleOption(name, key, val)
+			if func then func(val) end
+		end,
+	})
+end
+
+local function AuraChoices(map, cur, example)
+	local values = {}
+	local found = false
+	for value in pairs(map) do
+		tinsert(values, value)
+		if value == cur then found = true end
+	end
+
+	table.sort(values)
+	local choices = {}
+	for _, value in ipairs(values) do
+		local label = "LID_" .. map[value]
+		if example then
+			local sample = example(value)
+			if sample then label = MoveAny:Trans(label) .. " |cff9d9d9d(" .. sample .. ")|r" end
+		end
+
+		tinsert(choices, {
+			["value"] = value,
+			["label"] = label
+		})
+	end
+
+	if cur ~= nil and not found then
+		tinsert(choices, {
+			["value"] = cur,
+			["label"] = tostring(cur)
+		})
+	end
+	return choices
+end
+
+local function AddEleDropdown(win, name, key, value, map, func, label, example)
+	local cur = MoveAny:GetEleOption(name, key, value, "MenuOptions " .. key)
+	return win:AddDropdown({
+		["label"] = label or ("LID_" .. key),
+		["search"] = key,
+		["value"] = cur,
+		["choices"] = AuraChoices(map, cur, example),
+		["func"] = function(val)
+			MoveAny:SetEleOption(name, key, val)
+			if func then func(val) end
+		end,
+	})
+end
+
+local function DurationFormatExample(value)
+	if MoveAny.GetDurationFormatExample == nil then return nil end
+	local res = MoveAny:GetDurationFormatExample(value)
+	if res == nil then return nil end
+	if value == 0 then return res end
+	local base = MoveAny:GetDurationFormatExample(0)
+	if base == nil then return res end
+	return base .. " => " .. res
+end
+
+local function AuraTextApply(refresh)
+	return function()
+		if MoveAny.UpdateAuraDurations then MoveAny:UpdateAuraDurations("MenuOptions") end
+		if refresh then refresh() end
+	end
+end
+
+local function AddEleColorPicker(win, name, prefix, apply)
+	win:AddColorPicker({
+		["label"] = "LID_COLOR",
+		["search"] = prefix .. "COLOR",
+		["value"] = {
+			["r"] = MoveAny:GetEleOption(name, prefix .. "COLOR_R", 1),
+			["g"] = MoveAny:GetEleOption(name, prefix .. "COLOR_G", 1),
+			["b"] = MoveAny:GetEleOption(name, prefix .. "COLOR_B", 1),
+			["a"] = MoveAny:GetEleOption(name, prefix .. "COLOR_A", 1),
+		},
+		["func"] = function(r, g, b, a)
+			MoveAny:SetEleOption(name, prefix .. "COLOR_R", r)
+			MoveAny:SetEleOption(name, prefix .. "COLOR_G", g)
+			MoveAny:SetEleOption(name, prefix .. "COLOR_B", b)
+			MoveAny:SetEleOption(name, prefix .. "COLOR_A", a)
+			apply()
+		end,
+	})
+end
+
+local function AddEleOutline(win, name, prefix, default, apply)
+	win:AddCheckbox({
+		["label"] = "LID_OUTLINE",
+		["search"] = prefix .. "OUTLINE",
+		["value"] = MoveAny:GetEleOption(name, prefix .. "OUTLINE", default, "MenuOptions OUTLINE"),
+		["func"] = function(value)
+			MoveAny:SetEleOption(name, prefix .. "OUTLINE", value)
+			apply()
+		end,
+	})
+end
+
+local function AddCountOptions(win, name, prefix, refresh)
+	local apply = AuraTextApply(refresh)
+	AddEleDropdown(win, name, prefix .. "ANCHOR", 0, MoveAny.DurationAnchors, apply, "LID_ANCHOR")
+	AddEleSlider(win, name, prefix .. "SPACING", 0, -30, 30, 1, 0, apply, "LID_SPACING")
+	AddEleSlider(win, name, prefix .. "SIZE", MoveAny:GetCountDefaultSize(name), 4, 16, 1, 0, apply, "LID_TEXTSIZE")
+	AddEleOutline(win, name, prefix, MoveAny:GetCountDefaultOutline(name), apply)
+	AddEleDropdown(win, name, prefix .. "FONT", 0, MoveAny.DurationFonts, apply, "LID_FONT")
+	AddEleColorPicker(win, name, prefix, apply)
+end
+
+local function AddDurationOptions(win, name, prefix, refresh)
+	local apply = AuraTextApply(refresh)
+	AddEleDropdown(win, name, prefix .. "ANCHOR", 0, MoveAny.DurationAnchors, apply, "LID_ANCHOR")
+	AddEleSlider(win, name, prefix .. "SPACING", 0, -30, 30, 1, 0, apply, "LID_SPACING")
+	AddEleSlider(win, name, prefix .. "SIZE", MoveAny:GetDurationDefaultSize(name), 4, 16, 1, 0, apply, "LID_TEXTSIZE")
+	AddEleOutline(win, name, prefix, MoveAny:GetDurationDefaultOutline(name), apply)
+	AddEleDropdown(win, name, prefix .. "FONT", 0, MoveAny.DurationFonts, apply, "LID_FONT")
+	AddEleDropdown(win, name, prefix .. "FORMAT", 0, MoveAny.DurationFormats, apply, "LID_FORMAT", DurationFormatExample)
+	AddEleColorPicker(win, name, prefix, apply)
+end
+
+local function AddLayerOptions(win, name, frame)
+	AddEleCategory(win, "LAYER")
+	local strata, level = MoveAny:GetEleLayer(name)
+	local choices = {
+		{
+			["value"] = "",
+			["label"] = "LID_DEFAULT"
+		},
+	}
+
+	for _, v in ipairs(MoveAny.EleStratas) do
+		tinsert(choices, {
+			["value"] = v,
+			["label"] = v
+		})
+	end
+
+	win:AddDropdown({
+		["label"] = "LID_STRATA",
+		["search"] = "STRATA",
+		["value"] = strata,
+		["choices"] = choices,
+		["func"] = function(value)
+			MoveAny:SetEleLayer(name, value, nil)
+			MoveAny:ApplyEleLayer(name, frame, true)
+		end,
+	})
+
+	win:AddSlider({
+		["label"] = MoveAny:Trans("LID_FRAMELEVEL"),
+		["search"] = "FRAMELEVEL",
+		["value"] = level,
+		["min"] = 0,
+		["max"] = MoveAny.EleFrameLevelMax,
+		["step"] = 1,
+		["decimals"] = 0,
+		["func"] = function(value)
+			MoveAny:SetEleLayer(name, nil, value)
+			MoveAny:ApplyEleLayer(name, frame, true)
+		end,
+	})
+end
+
+local function AddGeneralOptions(win, name, optionFrame)
+	AddEleCategory(win, "GENERAL")
+	win.elePos = MoveAny:AddElePosition(win, name)
+	win.eleScale = MoveAny:AddEleScale(win, name)
+	local clickthrough, lockparent
+	local function UpdateHideDeps(hidden)
+		for _, cb in pairs({clickthrough, lockparent}) do
+			cb:SetEnabled(not hidden)
+			if cb.Label then
+				if hidden then
+					cb.Label:SetTextColor(0.5, 0.5, 0.5)
+				else
+					cb.Label:SetTextColor(1, 0.82, 0)
+				end
+			end
+		end
+	end
+
+	win:AddCheckbox({
+		["label"] = HIDE,
+		["search"] = "HIDE",
+		["value"] = MoveAny:GetEleOption(name, "Hide", false, "Hide1"),
+		["func"] = function(value)
+			MoveAny:SetEleOption(name, "Hide", value)
+			local dragf = MoveAny:GetDragFromName(name)
+			if value then
+				MoveAny:HideFrame(optionFrame)
+				MoveAny:UpdateEleColor(dragf)
+			else
+				MoveAny:ShowFrame(optionFrame)
+				MoveAny:UpdateEleColor(dragf)
+			end
+
+			MoveAny:UpdateEditorVisibility()
+			UpdateHideDeps(value)
+		end,
+	})
+
+	clickthrough = win:AddCheckbox({
+		["label"] = "LID_CLICKTHROUGH",
+		["search"] = "CLICKTHROUGH",
+		["value"] = MoveAny:GetEleOption(name, "ClickThrough", false, "ClickThrough1"),
+		["func"] = function(value)
+			MoveAny:SetEleOption(name, "ClickThrough", value)
+			local dragf = MoveAny:GetDragFromName(name)
+			if optionFrame == nil then
+				if dragf then dragf:Hide() end
+				return
+			end
+
+			MoveAny:UpdateEditorVisibility()
+			MoveAny:UpdateEleColor(dragf)
+			optionFrame:EnableMouse(not value)
+			local target = optionFrame.AuraContainer or optionFrame
+			MoveAny:ForeachChildren(target, function(child) if C_Widget.IsWidget(child) then child:EnableMouse(not value) end end, "clickthrough")
+		end,
+	})
+
+	lockparent = win:AddCheckbox({
+		["label"] = "LID_LOCKPARENT",
+		["search"] = "LOCKPARENT",
+		["value"] = MoveAny:GetEleOption(name, "LockParent", false, "LockParent1"),
+		["func"] = function(value) MoveAny:SetEleOption(name, "LockParent", value) end,
+	})
+
+	lockparent:HookScript("OnEnter", function(sel)
+		GameTooltip:SetOwner(sel, "ANCHOR_RIGHT")
+		GameTooltip:SetText(MoveAny:Trans("LID_LOCKPARENT"))
+		GameTooltip:AddLine(MoveAny:Trans("LID_LOCKPARENTDESC"), 1, 1, 1, true)
+		GameTooltip:Show()
+	end)
+
+	lockparent:HookScript("OnLeave", function() GameTooltip:Hide() end)
+	UpdateHideDeps(MoveAny:GetEleOption(name, "Hide", false, "Hide1"))
+	MoveAny:AddEleReset(win, name)
+end
+
+local function AddActionBarOptions(win, name, opts, frame, optionFrame)
+	AddEleCategory(win, "ACTIONBARS", ACTIONBARS_LABEL)
+	local btns = MoveAny:GetAbBtns(frame)
+	local maxBtns = 1
+	if btns then maxBtns = getn(btns) end
+	local rowsMax = maxBtns
+	if frame ~= MAMenuBar and frame ~= StanceBar and opts["COUNT"] and opts["COUNT"] > 0 then rowsMax = opts["COUNT"] end
+	local vmin = 1
+	if frame == MAActionBar1 or frame == MainActionBar or frame == MainMenuBar then vmin = 6 end
+	local sliderRows = nil
+	if frame ~= MAMenuBar and optionFrame ~= StanceBarAnchor then
+		win:AddSlider({
+			["label"] = MoveAny:Trans("LID_COUNT"),
+			["search"] = "COUNT",
+			["value"] = opts["COUNT"] or maxBtns,
+			["min"] = vmin,
+			["max"] = maxBtns,
+			["step"] = 1,
+			["decimals"] = 0,
+			["func"] = function(value)
+				if value == opts["COUNT"] then return end
+				opts["COUNT"] = value
+				if sliderRows then
+					sliderRows.slider:SetMinMaxValues(1, value)
+					if sliderRows.High then sliderRows.High:SetText(value) end
+					if sliderRows.value > value then sliderRows.slider:SetValue(value) end
+				end
+
+				if MoveAny.UpdateActionBar then MoveAny:UpdateActionBar(frame, "MenuOptions") end
+			end,
+		})
+	end
+
+	if btns and rowsMax >= 1 and optionFrame ~= StanceBarAnchor then
+		sliderRows = win:AddSlider({
+			["label"] = MoveAny:Trans("LID_ROWS"),
+			["search"] = "ROWS",
+			["value"] = opts["ROWS"] or 1,
+			["min"] = 1,
+			["max"] = rowsMax,
+			["step"] = 1,
+			["decimals"] = 0,
+			["func"] = function(value)
+				if value == opts["ROWS"] then return end
+				opts["ROWS"] = value
+				if frame.UpdateSystemSettingNumRows then
+					frame.numRows = value
+					frame:UpdateSystemSettingNumRows()
+				end
+
+				if MoveAny.UpdateActionBar then MoveAny:UpdateActionBar(frame, "MenuOptions2") end
+			end,
+		})
+	end
+
+	if optionFrame ~= StanceBarAnchor then
+		win:AddSlider({
+			["label"] = MoveAny:Trans("LID_OFFSET"),
+			["search"] = "OFFSET",
+			["value"] = opts["OFFSET"] or 0,
+			["min"] = -4,
+			["max"] = 8,
+			["step"] = 1,
+			["decimals"] = 0,
+			["func"] = function(value)
+				if value == opts["OFFSET"] then return end
+				opts["OFFSET"] = value
+				if MoveAny.UpdateActionBar then MoveAny:UpdateActionBar(frame, "MenuOptions3") end
+			end,
+		})
+
+		win:AddCheckbox({
+			["label"] = "LID_FLIPPED",
+			["search"] = "FLIPPED",
+			["value"] = MoveAny:GetEleOption(name, "FLIPPED", false, "Flipped1"),
+			["func"] = function(value)
+				MoveAny:SetEleOption(name, "FLIPPED", value)
+				if MoveAny.UpdateActionBar then MoveAny:UpdateActionBar(frame, "MenuOptions4") end
+			end,
+		})
+	end
+
+	opts["SPACING"] = opts["SPACING"] or 2
+	win:AddSlider({
+		["label"] = MoveAny:Trans("LID_SPACING"),
+		["search"] = "SPACING",
+		["value"] = opts["SPACING"],
+		["min"] = 0,
+		["max"] = 16,
+		["step"] = 1,
+		["decimals"] = 0,
+		["func"] = function(value)
+			if value == opts["SPACING"] then return end
+			opts["SPACING"] = value
+			if MoveAny.UpdateActionBar then MoveAny:UpdateActionBar(frame, "MenuOptions5") end
+		end,
+	})
+
+	if frame == MAActionBar1 or frame == MainActionBar then
+		win:AddCheckbox({
+			["label"] = "LID_CHANGEONCATSTEALTH",
+			["search"] = "CHANGEONCATSTEALTH",
+			["value"] = MoveAny:IsEnabled("CHANGEONCATSTEALTH", true),
+			["func"] = function(value)
+				MoveAny:SetEnabled("CHANGEONCATSTEALTH", value)
+				if not InCombatLockdown() then
+					UnregisterStateDriver(frame, "page")
+					MoveAny:UpdateActionBar(frame, "CHANGEONCATSTEALTH")
+				end
+			end,
+		})
+	end
+
+	if optionFrame == StanceBarAnchor then
+		opts["ORIENTATION"] = opts["ORIENTATION"] or "CENTERED"
+		win:AddDropdown({
+			["label"] = MoveAny:Trans("LID_ORIENTATION"),
+			["search"] = "ORIENTATION",
+			["value"] = opts["ORIENTATION"],
+			["choices"] = {
+				{
+					["value"] = "LEFTALIGNED",
+					["label"] = "LID_LEFTALIGNED"
+				},
+				{
+					["value"] = "CENTERED",
+					["label"] = "LID_CENTERED"
+				},
+				{
+					["value"] = "RIGHTALIGNED",
+					["label"] = "LID_RIGHTALIGNED"
+				},
+			},
+			["func"] = function(value)
+				opts["ORIENTATION"] = value
+				MoveAny:UpdateStanceBarOrientation()
+			end,
+		})
+	end
+end
+
+local function RefreshBuffs()
+	if MoveAny.UpdateBuffs then MoveAny:UpdateBuffs() end
+	if MoveAny.UpdateTargetBuffs then MoveAny:UpdateTargetBuffs() end
+	if MoveAny.UpdateTargetToTBuffs then MoveAny:UpdateTargetToTBuffs() end
+	if MoveAny.UpdateFocusBuffs then MoveAny:UpdateFocusBuffs() end
+	if MoveAny.UpdateFocusToTBuffs then MoveAny:UpdateFocusToTBuffs() end
+	if MoveAny.UpdateAuraDurations then MoveAny:UpdateAuraDurations("MenuOptions") end
+end
+
+local function RefreshDebuffs()
+	if MoveAny.UpdateDebuffs then MoveAny:UpdateDebuffs("MenuOptions") end
+	if MoveAny.UpdateTargetDebuffs then MoveAny:UpdateTargetDebuffs() end
+	if MoveAny.UpdateTargetToTDebuffs then MoveAny:UpdateTargetToTDebuffs() end
+	if MoveAny.UpdateFocusDebuffs then MoveAny:UpdateFocusDebuffs() end
+	if MoveAny.UpdateFocusToTDebuffs then MoveAny:UpdateFocusToTDebuffs() end
+	if MoveAny.UpdateAuraDurations then MoveAny:UpdateAuraDurations("MenuOptions") end
+end
+
+local MODES_FULL = {
+	[0] = "AUTO",
+	[1] = "TOPRIGHT",
+	[2] = "TOPLEFT",
+	[3] = "BOTTOMRIGHT",
+	[4] = "BOTTOMLEFT",
+	[5] = "CENTER",
+}
+
+local MODES_SIMPLE = {
+	[0] = "BOTTOM",
+	[1] = "TOP",
+}
+
+local COMBO_LAYOUTS = {
+	[0] = "HORIZONTAL",
+	[1] = "VERTICAL",
+	[2] = "ORIGINAL",
+	[3] = "CIRCLE",
+}
+
+local COMBO_STYLES = {
+	[0] = "DEFAULT",
+	[1] = "RETAILCLASS",
+	[2] = "RETAILROGUE",
+	[3] = "RETAILDRUID",
+}
+
+local function HasFullAuraModes()
+	local build = MoveAny:GetWoWBuild()
+	return build ~= "RETAIL" and build ~= "CLASSIC" and build ~= "TBC" and build ~= "MISTS"
+end
+
+local function AddAuraOptions(win, name, cat, prefix, ownBar, refresh)
+	AddEleCategory(win, cat)
+	if MoveAny.HasAuraGrid and MoveAny:HasAuraGrid(name) then
+		AddEleDropdown(win, name, prefix .. "ANCHOR", 0, MoveAny:GetAuraGridAnchors(), refresh, "LID_ANCHOR")
+	elseif name == ownBar then
+		if HasFullAuraModes() then AddEleDropdown(win, name, prefix .. "MODE", 0, MODES_FULL, refresh, "LID_GROWTH") end
+	else
+		AddEleDropdown(win, name, prefix .. "MODE", 0, MODES_SIMPLE, refresh, "LID_GROWTH")
+	end
+
+	AddEleSlider(win, name, prefix .. "LIMIT", 10, 2, 20, 1, 0, refresh, "LID_LIMIT")
+	AddEleSlider(win, name, prefix .. "SPACINGX", 2, 0, 30, 1, 0, refresh, "LID_SPACINGX")
+	AddEleSlider(win, name, prefix .. "SPACINGY", 4, 0, 30, 1, 0, refresh, "LID_SPACINGY")
+	AddEleCategory(win, cat .. "DURATION", MoveAny:Trans("LID_DURATION"), 2)
+	AddDurationOptions(win, name, prefix .. "DURATION", refresh)
+	AddEleCategory(win, cat .. "COUNT", MoveAny:Trans("LID_STACKTEXT"), 2)
+	AddCountOptions(win, name, prefix .. "COUNT", refresh)
+end
+
+local function AddStatusBarOptions(win, opts, frame, label)
+	AddEleCategory(win, "STATUSBAR", label)
+	opts["WIDTH"] = opts["WIDTH"] or 1024
+	opts["HEIGHT"] = opts["HEIGHT"] or 15
+	win:AddSlider({
+		["label"] = MoveAny:Trans("LID_WIDTH"),
+		["search"] = "WIDTH",
+		["value"] = opts["WIDTH"],
+		["min"] = 100,
+		["max"] = 1024,
+		["step"] = 2,
+		["decimals"] = 0,
+		["func"] = function(value)
+			if value == opts["WIDTH"] then return end
+			opts["WIDTH"] = value
+			if frame and frame.UpdateSize then frame:UpdateSize() end
+		end,
+	})
+
+	win:AddSlider({
+		["label"] = MoveAny:Trans("LID_HEIGHT"),
+		["search"] = "HEIGHT",
+		["value"] = opts["HEIGHT"],
+		["min"] = 2,
+		["max"] = 64,
+		["step"] = 1,
+		["decimals"] = 0,
+		["func"] = function(value)
+			if value == opts["HEIGHT"] then return end
+			opts["HEIGHT"] = value
+			if frame and frame.UpdateSize then frame:UpdateSize() end
+		end,
+	})
+end
+
+local function AddStatusTrackingBarOptions(win, name, opts, frame, label)
+	AddEleCategory(win, "STATUSBAR", label)
+	win:AddSlider({
+		["label"] = MoveAny:Trans("LID_WIDTH"),
+		["search"] = "WIDTH",
+		["value"] = opts["WIDTH"] or MoveAny:MathR(frame:GetWidth()),
+		["min"] = 100,
+		["max"] = 1000,
+		["step"] = 1,
+		["decimals"] = 0,
+		["func"] = function(value)
+			if value == opts["WIDTH"] then return end
+			opts["WIDTH"] = value
+			MoveAny:UpdateStatusTrackingBarWidth(name)
+		end,
+	})
+end
+
+function MoveAny:IsCastBar(name)
+	return name == "PlayerCastingBarFrame" or name == "CastingBarFrame" or name == "TargetFrameSpellBar" or name == "FocusFrameSpellBar"
+end
+
+function MoveAny:GetCastBarBaseWidth(region)
+	local w = region:GetWidth()
+	if region.maCastSet == nil or math.abs(w - region.maCastSet) > 0.5 or region.maCastBase == nil then region.maCastBase = w end
+	return region.maCastBase
+end
+
+function MoveAny:SyncCastBarSlices(region)
+	local slices = region.maCastSlices
+	if slices == nil then return end
+	local shown = region.maCastSliced and region:IsShown() and region:GetTexture() ~= nil
+	local alpha = region:GetAlpha()
+	for _, slice in ipairs(slices) do
+		slice:SetAlpha(alpha)
+		slice:SetShown(shown)
+	end
+end
+
+function MoveAny:RefreshCastBarSlices(region)
+	local slices = region.maCastSlices
+	if slices == nil or not region.maCastSliced then return end
+	local tex = region:GetTexture()
+	local ulx, uly, _, lly, urx = region:GetTexCoord()
+	local l, t, r, b = ulx or 0, uly or 0, urx or 1, lly or 1
+	local cut = (r - l) * 0.2
+	local coords = {{l, l + cut}, {l + cut, r - cut}, {r - cut, r}}
+	local layer, subLevel = region:GetDrawLayer()
+	local cr, cg, cb, ca = region:GetVertexColor()
+	local blend = region.GetBlendMode and region:GetBlendMode()
+	local desaturated = region.IsDesaturated and region:IsDesaturated()
+	for i, slice in ipairs(slices) do
+		slice:SetTexture(tex)
+		slice:SetTexCoord(coords[i][1], coords[i][2], t, b)
+		slice:SetDrawLayer(layer, subLevel)
+		if blend then slice:SetBlendMode(blend) end
+		slice:SetVertexColor(cr or 1, cg or 1, cb or 1, ca or 1)
+		slice:SetDesaturated(desaturated and true or false)
+	end
+
+	MoveAny:SyncCastBarSlices(region)
+end
+
+function MoveAny:CanSliceCastBarRegion(region)
+	if region.GetTexture == nil or region.GetTexCoord == nil or region.AddMaskTexture == nil then return false end
+	local parent = region:GetParent()
+	return parent ~= nil and parent.CreateMaskTexture ~= nil
+end
+
+function MoveAny:SliceCastBarAtlas(region)
+	if not region.SetTextureSliceMargins or not region.GetAtlas or not C_Texture or not C_Texture.GetAtlasInfo then return false end
+	local atlas = region:GetAtlas()
+	local info = atlas and C_Texture.GetAtlasInfo(atlas)
+	if not info then return false end
+	local cap = math.floor(info.width * 0.2)
+	region:SetTextureSliceMargins(cap, 0, cap, 0)
+	region:SetTextureSliceMode(Enum.UITextureSliceMode.Stretched)
+	if not region.maCastAtlasHooked then
+		region.maCastAtlasHooked = true
+		hooksecurefunc(region, "SetAtlas", function(sel) MoveAny:SliceCastBarAtlas(sel) end)
+	end
+
+	return true
+end
+
+function MoveAny:SliceCastBarRegion(region, width, base)
+	if MoveAny:SliceCastBarAtlas(region) then return end
+	local parent = region:GetParent()
+	if region.maCastSlices == nil then
+		local layer, subLevel = region:GetDrawLayer()
+		region.maCastSlices = {parent:CreateTexture(nil, layer, nil, subLevel), parent:CreateTexture(nil, layer, nil, subLevel), parent:CreateTexture(nil, layer, nil, subLevel)}
+		region.maCastMask = parent:CreateMaskTexture()
+		region.maCastMask:SetTexture("Interface\\Buttons\\WHITE8X8", "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
+		region.maCastMask:SetSize(1, 1)
+		region.maCastMask:SetPoint("BOTTOMRIGHT", parent, "TOPLEFT", -8, 8)
+		for _, func in ipairs({"Show", "Hide", "SetShown", "SetAlpha"}) do
+			if region[func] then
+				hooksecurefunc(region, func, function(sel) MoveAny:SyncCastBarSlices(sel) end)
+			end
+		end
+
+		for _, func in ipairs({"SetTexture", "SetAtlas", "SetTexCoord", "SetVertexColor", "SetDesaturated", "SetBlendMode", "SetDrawLayer"}) do
+			if region[func] then
+				hooksecurefunc(region, func, function(sel) MoveAny:RefreshCastBarSlices(sel) end)
+			end
+		end
+	end
+
+	if not region.maCastSliced then
+		region.maCastSliced = true
+		region:AddMaskTexture(region.maCastMask)
+	end
+
+	local slices = region.maCastSlices
+	local cap = math.min(base * 0.2, width / 2)
+	slices[1]:ClearAllPoints()
+	slices[1]:SetPoint("TOPLEFT", region, "TOPLEFT")
+	slices[1]:SetPoint("BOTTOMLEFT", region, "BOTTOMLEFT")
+	slices[1]:SetWidth(cap)
+	slices[3]:ClearAllPoints()
+	slices[3]:SetPoint("TOPRIGHT", region, "TOPRIGHT")
+	slices[3]:SetPoint("BOTTOMRIGHT", region, "BOTTOMRIGHT")
+	slices[3]:SetWidth(cap)
+	slices[2]:ClearAllPoints()
+	slices[2]:SetPoint("TOPLEFT", slices[1], "TOPRIGHT")
+	slices[2]:SetPoint("BOTTOMRIGHT", slices[3], "BOTTOMLEFT")
+	MoveAny:RefreshCastBarSlices(region)
+end
+
+function MoveAny:UpdateCastBarWidth(name)
+	local frame = _G[name]
+	if frame == nil or frame.GetWidth == nil then return end
+	if not frame.maCastHooked then
+		frame.maCastHooked = true
+		if frame.SetLook then hooksecurefunc(frame, "SetLook", function() MoveAny:UpdateCastBarWidth(name) end) end
+		if CastingBarFrame_SetLook and not MoveAny.castBarLookHooked then
+			MoveAny.castBarLookHooked = true
+			hooksecurefunc("CastingBarFrame_SetLook", function(bar)
+				local barName = bar and bar.GetName and bar:GetName()
+				if barName and MoveAny:IsCastBar(barName) then MoveAny:UpdateCastBarWidth(barName) end
+			end)
+		end
+	end
+
+	local width = MoveAny:GetEleOption(name, "CASTBARWIDTH", nil, "UpdateCastBarWidth")
+	if width == nil then return end
+	local base = MoveAny:GetCastBarBaseWidth(frame)
+	if base == nil or base <= 0 then return end
+	local ratio = width / base
+	for _, key in ipairs({"Border", "BorderShield", "Flash", "Text", "Background", "TextBorder", "DropShadow", "ChargeFlash"}) do
+		local region = frame[key] or _G[name .. key]
+		local shieldIcon = key == "BorderShield" and region and region.GetAtlas and region:GetAtlas() == "ui-castingbar-shield"
+		if region and region.GetNumPoints and not shieldIcon then
+			local singleAnchor = region:GetNumPoints() == 1
+			local regionBase = singleAnchor and MoveAny:GetCastBarBaseWidth(region) or region:GetWidth() - frame:GetWidth() + base
+			if regionBase and regionBase > 0 then
+				if key ~= "Text" and MoveAny:CanSliceCastBarRegion(region) then
+					region.maCastSet = math.max(1, regionBase + width - base)
+					if singleAnchor then region:SetWidth(region.maCastSet) end
+					MoveAny:SliceCastBarRegion(region, region.maCastSet, regionBase)
+				elseif singleAnchor then
+					region.maCastSet = regionBase * ratio
+					region:SetWidth(region.maCastSet)
+				end
+			end
+		end
+	end
+
+	for _, key in ipairs({"InterruptGlow", "ChargeGlow", "EnergyGlow", "EnergyMask", "Flakes01", "Flakes02", "Flakes03", "Shine", "CraftingMask", "BorderMask"}) do
+		local region = frame[key]
+		if region and region:GetNumPoints() == 1 then
+			region.maCastSet = MoveAny:GetCastBarBaseWidth(region) * ratio
+			region:SetWidth(region.maCastSet)
+		end
+	end
+
+	local fill = frame.GetStatusBarTexture and frame:GetStatusBarTexture()
+	if fill then MoveAny:SliceCastBarAtlas(fill) end
+	frame.maCastSet = width
+	frame:SetSize(width, frame:GetHeight())
+end
+
+local function AddCastBarOptions(win, name, frame)
+	AddEleCategory(win, "CASTBAR", MoveAny:Trans("LID_CASTINGBAR"))
+	local base = MoveAny:MathR(frame.maCastBase or frame:GetWidth())
+	AddEleSlider(win, name, "CASTBARWIDTH", base, 50, 600, 1, 0, function() MoveAny:UpdateCastBarWidth(name) end, "LID_WIDTH")
+end
+
+local function AddBagOptions(win, name)
+	AddEleCategory(win, "BAGEXTRAS")
+	win:AddCheckbox({
+		["label"] = HIDE .. " (" .. MoveAny:Trans("LID_HIDESMALLBAGS") .. ")",
+		["search"] = "HIDESMALLBAGS",
+		["value"] = MoveAny:GetEleOption(name, "HideSmallBags", false, "HideSmallBags1"),
+		["func"] = function(value)
+			MoveAny:SetEleOption(name, "HideSmallBags", value)
+			MoveAny:UpdateBags()
+		end,
+	})
+
+	if KeyRingButton then
+		win:AddCheckbox({
+			["label"] = HIDE .. " (" .. MoveAny:Trans("LID_HIDEKEYBAG") .. ")",
+			["search"] = "HIDEKEYBAG",
+			["value"] = MoveAny:GetEleOption(name, "HideKeyBag", false, "HideKeyBag1"),
+			["func"] = function(value)
+				MoveAny:SetEleOption(name, "HideKeyBag", value)
+				MoveAny:UpdateBags()
+			end,
+		})
+	end
+end
+
+local function AddAlphaOptions(win, name)
+	AddEleCategory(win, "ALPHA")
+	local apply = function() MoveAny:SafeUpdateAlphas("MenuOptions") end
+	AddEleSlider(win, name, "ALPHAINCOMBAT", 1, 0, 1, 0.1, 1, apply)
+	if MoveAny:IsFullHealthAlphaSupported() then
+		win:AddCheckbox({
+			["label"] = "LID_FULLHPENABLED",
+			["search"] = "FULLHPENABLED",
+			["value"] = MoveAny:GetEleOption(name, "FULLHPENABLED", false, "fullhp1"),
+			["func"] = function(value) MoveAny:SetEleOption(name, "FULLHPENABLED", value) end,
+		})
+
+		AddEleSlider(win, name, "ALPHAISFULLHEALTH", 1, 0, 1, 0.1, 1, apply)
+	end
+
+	if MoveAny:IsVehicleAlphaSupported() then AddEleSlider(win, name, "ALPHAINVEHICLE", 1, 0, 1, 0.1, 1, apply) end
+	AddEleSlider(win, name, "ALPHAISMOUNTED", 1, 0, 1, 0.1, 1, apply)
+	AddEleSlider(win, name, "ALPHAINRESTEDAREA", 1, 0, 1, 0.1, 1, apply)
+	AddEleSlider(win, name, "ALPHAISSTEALTHED", 1, 0, 1, 0.1, 1, apply)
+	if MoveAny:IsPetBattleAvailable() then AddEleSlider(win, name, "ALPHAISINPETBATTLE", 1, 0, 1, 0.1, 1, apply) end
+	if MoveAny:IsSkyridingAlphaSupported() then AddEleSlider(win, name, "ALPHAISSKYRIDING", 1, 0, 1, 0.1, 1, apply) end
+	AddEleSlider(win, name, "ALPHANOTINCOMBAT", 1, 0, 1, 0.1, 1, apply)
+end
+
+function MoveAny:MenuOptions(win, frame)
+	local optionFrame = frame
+	if frame == StanceBarAnchor then frame = StanceBar end
+	if frame == nil then
+		MoveAny:MSG("FRAME NOT FOUND")
+		return
+	end
+
+	local name = MoveAny:GetFrameName(optionFrame)
+	local opts = MoveAny:GetEleOptions(name, "MenuOptions")
+	win:SuspendLayout()
+	AddGeneralOptions(win, name, optionFrame)
+	AddLayerOptions(win, name, optionFrame)
+	AddAlphaOptions(win, name)
+	if string.find(name, "MAActionBar") or string.find(name, "MultiBar") or name == "MainActionBar" or name == "MainMenuBar" or name == "MAMenuBar" or name == "PetActionBar" or name == "MAPetBar" or name == "StanceBarAnchor" then AddActionBarOptions(win, name, opts, frame, optionFrame) end
+	if string.find(name, "MABuffBar") or string.find(name, "BuffFrame") or string.find(name, "BuffMover") then AddAuraOptions(win, name, "BUFFS", "MABUFF", "MABuffBar", RefreshBuffs) end
+	if string.find(name, "MADebuffBar") or string.find(name, "DebuffFrame") or string.find(name, "DebuffMover") then AddAuraOptions(win, name, "DEBUFFS", "MADEBUFF", "MADebuffBar", RefreshDebuffs) end
+	if string.find(name, "MainMenuExpBar") then
+		AddStatusBarOptions(win, opts, frame, MoveAny:Trans("LID_MAINMENUEXPBAR"))
+	elseif string.find(name, "ReputationWatchBar") then
+		AddStatusBarOptions(win, opts, frame, MoveAny:Trans("LID_REPUTATIONWATCHBAR"))
+	elseif name == "MainStatusTrackingBarContainer" or name == "SecondaryStatusTrackingBarContainer" then
+		AddStatusTrackingBarOptions(win, name, opts, frame, MoveAny:Trans("LID_" .. name))
+	end
+
+	if MoveAny:IsCastBar(name) then AddCastBarOptions(win, name, frame) end
+	if string.find(name, "BagsBar") then AddBagOptions(win, name) end
+	if name == "ComboFrame" then
+		AddEleCategory(win, "COMBOFRAME")
+		AddEleDropdown(win, name, "COMBOLAYOUT", 0, COMBO_LAYOUTS, function() MoveAny:UpdateComboFrameLayout() end, "LID_LAYOUT")
+		if ComboPoint1 and MoveAny:GetComboStyleAtlases() then AddEleDropdown(win, name, "COMBOSTYLE", 0, COMBO_STYLES, function() MoveAny:UpdateComboFrameLayout() end, "LID_STYLE") end
+	end
+
+	win:ResumeLayout()
+end
+
+function MoveAny:ResetSelectedText()
+	if MoveAny.GetLastSelected == nil then return end
+	if not runSelectedReset then
+		runSelectedReset = true
+		local cb = MoveAny:GetLastSelected()
+		if cb then cb:UpdateLabel() end
+		runSelectedReset = false
+	end
+end
+
+function MoveAny:UpdateEleColor(dragframe)
+	if dragframe == nil or dragframe.t == nil then return end
+	MoveAny:UpdateDragLevel(dragframe)
+	if dragframe == MACurrentEle then
+		dragframe.t:SetVertexColor(MoveAny:GetColor("se"))
+		return
+	end
+
+	local name = dragframe.maName
+	if name and MoveAny:GetEleOption(name, "Hide", false, "UpdateEleColor Hide") then
+		dragframe.t:SetVertexColor(MoveAny:GetColor("hidden"))
+	elseif name and MoveAny:GetEleOption(name, "ClickThrough", false, "UpdateEleColor ClickThrough") then
+		dragframe.t:SetVertexColor(MoveAny:GetColor("clickthrough"))
+	else
+		dragframe.t:SetVertexColor(MoveAny:GetColor("el"))
+	end
+end
+
+function MoveAny:ClearSelectEle()
+	local old = MACurrentEle
+	MACurrentEle = nil
+	if old and old.t then
+		MoveAny:UpdateEleColor(old)
+		old.name:Hide()
+		old.desc:Hide()
+	end
+
+	if MoveAny.GridFrameThink then MoveAny:GridFrameThink() end
+	MoveAny:ResetSelectedText()
+end
+
+function MoveAny:SelectEle(ele)
+	if ele == nil then return end
+	local old = MACurrentEle
+	MACurrentEle = ele
+	if old and old ~= ele and old.t then
+		MoveAny:UpdateEleColor(old)
+		old.name:Hide()
+		old.desc:Hide()
+	end
+
+	if MoveAny.GridFrameThink then MoveAny:GridFrameThink() end
+	if MACurrentEle and MACurrentEle.t then
+		MoveAny:UpdateEleColor(MACurrentEle)
+		MACurrentEle.name:Show()
+		MACurrentEle.desc:Show()
+	end
+
+	MoveAny:ResetSelectedText()
+end
+
+function MoveAny:GetSelectEleName(lstr)
+	return ses[lstr]
+end
+
+function MoveAny:RegisterSelectEle(lstr, name)
+	ses[lstr] = name
+end
+
+function MoveAny:UpdateHiddenFrames()
+	MoveAny:UpdateEditorVisibility()
+end
+
+function MoveAny:IsPresetProfileActive()
+	if C_Widget.IsWidget(EditModeManagerFrame) then
+		if not EditModeManagerFrame:IsInitialized() or EditModeManagerFrame.layoutApplyInProgress then return true end
+		local layoutInfo = EditModeManagerFrame:GetActiveLayoutInfo()
+		local isPresetLayout = layoutInfo.layoutType == Enum.EditModeLayoutType.Preset
+		return isPresetLayout
+	end
+	return true
+end
+
+if MoveAny:GetWoWBuild() == "RETAIL" or MoveAny:GetWoWBuild() == "CLASSIC" or MoveAny:GetWoWBuild() == "TBC" or MoveAny:GetWoWBuild() == "MISTS" then
+	local lastCheck = false
+	local wasPreset = false
+	function MoveAny:ThinkHelpFrame()
+		local isPreset = MoveAny:IsPresetProfileActive()
+		if lastCheck ~= isPreset then
+			lastCheck = isPreset
+			if isPreset then
+				MoveAny:MSG(MoveAny:Trans("LID_PLEASESWITCHPROFILE1") .. " " .. MoveAny:Trans("LID_PLEASESWITCHPROFILE2") .. " " .. MoveAny:Trans("LID_PLEASESWITCHPROFILE3"))
+			elseif wasPreset then
+				MoveAny:MSG("ALL GOOD.")
+			end
+		end
+	end
+
+	MoveAny:After(1, function()
+		wasPreset = MoveAny:IsPresetProfileActive()
+		MoveAny:ThinkHelpFrame()
+		local helpEventFrame = CreateFrame("Frame")
+		MoveAny:RegisterEvent(helpEventFrame, "EDIT_MODE_LAYOUTS_UPDATED")
+		MoveAny:OnEvent(helpEventFrame, function() MoveAny:ThinkHelpFrame() end, "ThinkHelpFrame Event")
+	end, "ThinkHelpFrame Init")
+end
+
+local activeEleOptions = nil
+local restoreEleOptions = false
+function MoveAny:HideEleOptions()
+	if activeEleOptions and activeEleOptions:IsShown() then
+		restoreEleOptions = true
+		activeEleOptions:Hide()
+	end
+end
+
+function MoveAny:RestoreEleOptions()
+	if restoreEleOptions and activeEleOptions then activeEleOptions:Show() end
+	restoreEleOptions = false
+end
+
+local activeEleOptionsArgs = nil
+function MoveAny:RefreshEleOptionsLanguage()
+	local old = activeEleOptions
+	local reopen = old ~= nil and old:IsShown() and activeEleOptionsArgs ~= nil
+	local point, width, height
+	if reopen then
+		point = {old:GetPoint(1)}
+		width, height = old:GetSize()
+	end
+
+	for _, df in pairs(MoveAny:GetDragFrames()) do
+		if df.opt then
+			df.opt:Hide()
+			df.opt = nil
+		end
+
+		if df.UpdateLanguage then df:UpdateLanguage() end
+	end
+
+	activeEleOptions = nil
+	restoreEleOptions = false
+	if reopen then
+		local args = activeEleOptionsArgs
+		MoveAny:ToggleElementOptions(args[1], args[2], args[3])
+		local win = args[3].opt
+		if win and point[1] then
+			win:ClearAllPoints()
+			win:SetPoint(unpack(point))
+			win:SetSize(width, height)
+		end
+	end
+end
+
+function MoveAny:ToggleElementOptions(name, fram, dragframe)
+	if dragframe.opt == nil then
+		dragframe.opt = MoveAny:CreateUIWindow({
+			["name"] = name .. "MAOptions",
+			["parent"] = MoveAny:GetMainPanel(),
+			["pTab"] = {"CENTER", MoveAny:GetMainPanel(), "CENTER", 0, 0},
+			["title"] = name,
+			["width"] = 500,
+			["height"] = MoveAny:MClamp(500, 200, GetScreenHeight()),
+			["minWidth"] = 400,
+			["minHeight"] = 200,
+			["maxWidth"] = 800,
+			["maxHeight"] = GetScreenHeight(),
+			["getCollapsed"] = function(key) return MoveAny:GetCollapsed(key) end,
+			["setCollapsed"] = function(key, collapsed) MoveAny:SetCollapsed(key, collapsed) end,
+		})
+
+		dragframe.opt:SetFrameLevel(framelevel)
+		framelevel = framelevel + 1
+		if dragframe.opt.CloseButton then dragframe.opt.CloseButton:SetFrameLevel(dragframe.opt:GetFrameLevel() + 510) end
+		framelevel = framelevel + 100
+		MoveAny:MenuOptions(dragframe.opt, fram)
+		dragframe.opt:HookScript("OnShow", function(sel)
+			if sel.elePos then sel.elePos:UpdateText() end
+			if sel.eleScale then sel.eleScale:UpdateText() end
+		end)
+	end
+
+	local old = activeEleOptions
+	if old and old ~= dragframe.opt then
+		local point = {old:GetPoint(1)}
+		if point[1] then
+			dragframe.opt:ClearAllPoints()
+			dragframe.opt:SetPoint(unpack(point))
+		end
+
+		dragframe.opt:SetSize(old:GetSize())
+		old:Hide()
+	end
+
+	activeEleOptions = dragframe.opt
+	activeEleOptionsArgs = {name, fram, dragframe}
+	restoreEleOptions = false
+	dragframe.opt:Show()
+end
+
+local cacheDrags = {}
+function MoveAny:GetDragFromName(name)
+	return cacheDrags[name]
+end
+
+function MoveAny:ReleaseWidget(name, created)
+	local frame = MoveAny:GetFrameByName(name)
+	local dragframe = cacheDrags[name]
+	if dragframe then
+		if MoveAny:GetCurrentEle() == dragframe then MoveAny:ClearSelectEle() end
+		dragframe:Hide()
+		if dragframe.opt then dragframe.opt:Hide() end
+		local drags = MoveAny:GetDragFrames()
+		for i = #drags, 1, -1 do
+			if drags[i] == dragframe then tremove(drags, i) end
+		end
+
+		cacheDrags[name] = nil
+	end
+
+	MoveAny.registeredWidgets[name] = nil
+	if frame then
+		local eleFrames = MoveAny:GetEleFrames()
+		for i = #eleFrames, 1, -1 do
+			if eleFrames[i] == frame then tremove(eleFrames, i) end
+		end
+
+		if MoveAny.RemoveAlphaFrame then MoveAny:RemoveAlphaFrame(frame) end
+		if not created then MoveAny:RestoreWidgetState(name, frame) end
+	end
+end
+
+local reapplyPoints = {}
+local reapplyPending = false
+function MoveAny:ReapplyElePoints(from)
+	for _, applyElePoint in pairs(reapplyPoints) do
+		applyElePoint()
+	end
+end
+
+local reapplyFrame = CreateFrame("Frame")
+MoveAny:OnEvent(reapplyFrame, function(sel, event)
+	if reapplyPending then return end
+	reapplyPending = true
+	MoveAny:After(0.5, function()
+		reapplyPending = false
+		MoveAny:ReapplyElePoints(event)
+	end, "ReapplyElePoints")
+end, "reapplyFrame")
+
+MoveAny:RegisterEvent(reapplyFrame, "PLAYER_ENTERING_WORLD")
+MoveAny:RegisterEvent(reapplyFrame, "UI_SCALE_CHANGED")
+MoveAny:RegisterEvent(reapplyFrame, "DISPLAY_SIZE_CHANGED")
+function MoveAny:SafeAnchorDrag(dragframe, anchor, posx, posy)
+	if not dragframe or not dragframe.SetPoint then return false end
+	posx = posx or 0
+	posy = posy or 0
+	if anchor and anchor ~= UIParent then
+		local restricted = anchor.IsForbidden and anchor:IsForbidden()
+		if not restricted and anchor.IsAnchoringRestricted and anchor:IsAnchoringRestricted() then restricted = true end
+		if not restricted and anchor.GetCenter and not MoveAny:CanAccessValues(anchor:GetCenter()) then restricted = true end
+		if restricted then
+			if MoveAny:AnchorDragToElePoint(dragframe, posx, posy) then return true end
+			anchor = UIParent
+		end
+	end
+
+	if not anchor then anchor = UIParent end
+	dragframe:ClearAllPoints()
+	if dragframe.maName == "StaticPopup1" and anchor == StaticPopup1 then
+		local _, root, point, x, y = MoveAny:GetElePoint("StaticPopup1")
+		if point and x and y then
+			local scale = StaticPopup1:GetEffectiveScale() / dragframe:GetEffectiveScale()
+			if pcall(dragframe.SetPoint, dragframe, "CENTER", root, point, x * scale + posx, y * scale + posy) then return true end
+		end
+	end
+
+	if pcall(dragframe.SetPoint, dragframe, "CENTER", anchor, "CENTER", posx, posy) then return true end
+	if MoveAny:AnchorDragToElePoint(dragframe, posx, posy) then return true end
+	dragframe:ClearAllPoints()
+	pcall(dragframe.SetPoint, dragframe, "CENTER", UIParent, "CENTER", 0, 0)
+	return false
+end
+
+function MoveAny:AnchorDragToElePoint(dragframe, posx, posy)
+	local name = dragframe and dragframe.maName
+	if name == nil then return false end
+	local p1, root, p3, x, y = MoveAny:GetElePoint(name)
+	if not p1 or not p3 or not root then return false end
+	local scale = 1
+	local frame = _G[name]
+	if frame and frame.GetEffectiveScale then
+		local fs, ds = frame:GetEffectiveScale(), dragframe:GetEffectiveScale()
+		if MoveAny:CanAccessValues(fs, ds) and type(fs) == "number" and type(ds) == "number" and ds > 0 then scale = fs / ds end
+	end
+
+	dragframe:ClearAllPoints()
+	return pcall(dragframe.SetPoint, dragframe, p1, root, p3, (x or 0) * scale + (posx or 0), (y or 0) * scale + (posy or 0))
+end
+
+function MoveAny:DetachDrag(dragframe)
+	if not dragframe then return false end
+	local root = MoveAny:GetMainPanel()
+	local x, y = dragframe:GetCenter()
+	local rootX, rootY = root:GetCenter()
+	local scale = dragframe:GetEffectiveScale()
+	local rootScale = root:GetEffectiveScale()
+	if not MoveAny:CanAccessValues(x, y, rootX, rootY, scale, rootScale) then return MoveAny:AnchorDragToElePoint(dragframe, 0, 0) end
+	if type(x) ~= "number" or type(y) ~= "number" or type(rootX) ~= "number" or type(rootY) ~= "number" or type(scale) ~= "number" or type(rootScale) ~= "number" then return false end
+	if scale <= 0 or rootScale <= 0 then return false end
+	return MoveAny:SafeAnchorDrag(dragframe, root, (x * scale - rootX * rootScale) / scale, (y * scale - rootY * rootScale) / scale)
+end
+
+local SNAP_RANGE = 8
+local SNAP_ALIGNMENT_GAP = 64
+local snapPreview = nil
+local function GetSnapRect(f)
+	if f == nil or f.GetLeft == nil then return nil end
+	local l, r, b, t = f:GetLeft(), f:GetRight(), f:GetBottom(), f:GetTop()
+	if l == nil or r == nil or b == nil or t == nil then return nil end
+	if not MoveAny:CanAccessValues(l, r, b, t) then return nil end
+	local s = f:GetEffectiveScale()
+	l, r, b, t = l * s, r * s, b * s, t * s
+
+	return {
+		l = l,
+		r = r,
+		b = b,
+		t = t,
+		cx = (l + r) / 2,
+		cy = (b + t) / 2
+	}
+end
+
+local function GetSnapGap(aMin, aMax, bMin, bMax)
+	if bMin > aMax then return bMin - aMax end
+	if aMin > bMax then return aMin - bMax end
+	return 0
+end
+
+local function PickSnap(best, delta, line, range)
+	local d = math.abs(delta)
+	if d <= range and (best.d == nil or d < best.d) then
+		best.d = d
+		best.delta = delta
+		best.line = line
+	end
+end
+
+local function FindEleSnap(dragframe)
+	local m = GetSnapRect(dragframe)
+	if m == nil then return nil end
+	local us = UIParent:GetEffectiveScale()
+	local range = SNAP_RANGE * us
+	local alignmentGap = SNAP_ALIGNMENT_GAP * us
+	local bx, by = {}, {}
+	local ucx, ucy = UIParent:GetCenter()
+	if ucx and ucy then
+		ucx, ucy = ucx * us, ucy * us
+		PickSnap(bx, ucx - m.cx, ucx, range)
+		PickSnap(bx, ucx - m.l, ucx, range)
+		PickSnap(bx, ucx - m.r, ucx, range)
+		PickSnap(by, ucy - m.cy, ucy, range)
+		PickSnap(by, ucy - m.b, ucy, range)
+		PickSnap(by, ucy - m.t, ucy, range)
+	end
+
+	for _, df in pairs(MoveAny:GetDragFrames()) do
+		if df ~= dragframe and df:IsVisible() then
+			local o = GetSnapRect(df)
+			if o then
+				if GetSnapGap(m.b, m.t, o.b, o.t) <= alignmentGap then
+					PickSnap(bx, o.l - m.r, o.l, range)
+					PickSnap(bx, o.r - m.l, o.r, range)
+					PickSnap(bx, o.l - m.l, o.l, range)
+					PickSnap(bx, o.r - m.r, o.r, range)
+					PickSnap(bx, o.cx - m.cx, o.cx, range)
+					PickSnap(bx, o.cx - m.l, o.cx, range)
+					PickSnap(bx, o.cx - m.r, o.cx, range)
+					PickSnap(bx, o.l - m.cx, o.l, range)
+					PickSnap(bx, o.r - m.cx, o.r, range)
+				end
+
+				if GetSnapGap(m.l, m.r, o.l, o.r) <= alignmentGap then
+					PickSnap(by, o.b - m.t, o.b, range)
+					PickSnap(by, o.t - m.b, o.t, range)
+					PickSnap(by, o.b - m.b, o.b, range)
+					PickSnap(by, o.t - m.t, o.t, range)
+					PickSnap(by, o.cy - m.cy, o.cy, range)
+					PickSnap(by, o.cy - m.b, o.cy, range)
+					PickSnap(by, o.cy - m.t, o.cy, range)
+					PickSnap(by, o.b - m.cy, o.b, range)
+					PickSnap(by, o.t - m.cy, o.t, range)
+				end
+			end
+		end
+	end
+
+	return bx.delta, by.delta, bx.line, by.line
+end
+
+local function GetSnapPreview()
+	if snapPreview == nil then
+		snapPreview = CreateFrame("Frame", nil, UIParent)
+		snapPreview:SetAllPoints(UIParent)
+		snapPreview:SetFrameStrata("HIGH")
+		snapPreview:EnableMouse(false)
+		snapPreview.ver = snapPreview:CreateTexture(nil, "OVERLAY")
+		snapPreview.hor = snapPreview:CreateTexture(nil, "OVERLAY")
+		for _, line in pairs({snapPreview.ver, snapPreview.hor}) do
+			if line.SetColorTexture then
+				line:SetColorTexture(1, 1, 1, 1)
+			else
+				line:SetTexture(1, 1, 1, 1)
+			end
+
+			line:SetVertexColor(1, 0, 0, 1)
+			line:Hide()
+		end
+	end
+
+	return snapPreview
+end
+
+local function HideSnapPreview()
+	if snapPreview == nil then return end
+	snapPreview.ver:Hide()
+	snapPreview.hor:Hide()
+end
+
+local function UpdateSnapPreview(dragframe)
+	if not MoveAny:IsEnabled("SNAPTOELEMENTS", true) then
+		HideSnapPreview()
+		return
+	end
+
+	local preview = GetSnapPreview()
+	local _, _, lineX, lineY = FindEleSnap(dragframe)
+	local us = UIParent:GetEffectiveScale()
+	if lineX then
+		preview.ver:ClearAllPoints()
+		preview.ver:SetPoint("BOTTOM", UIParent, "BOTTOMLEFT", lineX / us, 0)
+		preview.ver:SetSize(1, UIParent:GetHeight())
+		preview.ver:Show()
+	else
+		preview.ver:Hide()
+	end
+
+	if lineY then
+		preview.hor:ClearAllPoints()
+		preview.hor:SetPoint("LEFT", UIParent, "BOTTOMLEFT", 0, lineY / us)
+		preview.hor:SetSize(UIParent:GetWidth(), 1)
+		preview.hor:Show()
+	else
+		preview.hor:Hide()
+	end
+end
+
+function MoveAny:UpdateSnapVisibility()
+	HideSnapPreview()
+	for dragframe, moving in pairs(ma_ismoving) do
+		if moving then
+			if MoveAny:IsEnabled("SNAPTOELEMENTS", true) then dragframe:SetScript("OnUpdate", UpdateSnapPreview) else dragframe:SetScript("OnUpdate", nil) end
+		end
+	end
+end
+
+function MoveAny:RegisterWidget(tab)
+	tab.loader = tab.loader or MoveAny.currentElementLoader
+	local prev = MoveAny.currentElementLoader
+	MoveAny.currentElementLoader = tab.loader
+	MoveAny.inRegisterWidget = (MoveAny.inRegisterWidget or 0) + 1
+	local ok, res = xpcall(MoveAny.RegisterWidgetRaw, geterrorhandler(), MoveAny, tab)
+	MoveAny.inRegisterWidget = MoveAny.inRegisterWidget - 1
+	MoveAny.currentElementLoader = prev
+	if ok and tab.loader and MoveAny.registeredWidgets[tab.name] == tab then
+		tab.loader.widgets[tab.name] = tab
+		local frame = MoveAny:GetFrameByName(tab.name)
+		if frame and frame.maReleasedHidden then
+			frame.maReleasedHidden = nil
+			frame:Show()
+		end
+	end
+
+	return res
+end
+
+function MoveAny:RegisterWidgetRaw(tab)
+	MoveAny.Profiler.Mark()
+	local name = tab.name
+	local lstr = tab.lstr
+	local lstri = tab.lstri
+	MoveAny:RegisterSelectEle(lstr, name)
+	if lstri then
+		lstr = format(MoveAny:Trans(lstr), lstri)
+	else
+		lstr = MoveAny:Trans(lstr)
+	end
+
+	local sw = tab.sw
+	local sh = tab.sh
+	local secure = tab.ma_secure
+	local noreparent = tab.noreparent or false
+	local userplaced = tab.userplaced
+	local cleft = tab.cleft
+	local cright = tab.cright
+	local ctop = tab.ctop
+	local cbottom = tab.cbottom
+	local posx = tab.posx
+	local posy = tab.posy
+	if tab.resizable then
+		posx = ((cleft or 0) + (cright or 0)) / 2
+		posy = ((ctop or 0) + (cbottom or 0)) / 2
+	end
+
+	local setup = tab.setup
+	tab.delay = tab.delay or 0.2
+	local enabled1, forced1 = MoveAny:IsInEditModeEnabled(name)
+	local enabled2, forced2 = MoveAny:IsInEditModeEnabled(lstr)
+	if (enabled1 or enabled2) and (not forced1 and not forced2) then
+		editModeWidgets[name] = tab
+		MoveAny:QueueEditModeConflictWindow()
+		return
+	end
+
+	editModeWidgets[name] = nil
+	local frame = MoveAny:GetFrameByName(name)
+	if frame then
+		MoveAny:AddFrameName(frame, name)
+		MoveAny:CaptureWidgetState(name, frame)
+	end
+	MoveAny.Profiler.Mark("RW 2 editmode/frame lookup")
+	if MoveAny:GetDragFromName(name) == nil then
+		cacheDrags[name] = CreateFrame("FRAME", name .. "_MA_DRAG", MoveAny:GetMainPanel())
+		local dragframe = MoveAny:GetDragFromName(name)
+		dragframe.maName = name
+		dragframe.maActive = tab.active
+		MoveAny:SetClampedToScreen(dragframe, true, "RegisterWidget 1")
+		dragframe:SetFrameStrata("MEDIUM")
+		dragframe:Hide()
+		if MoveAny:GetEleSize(name) then
+			dragframe:SetSize(MoveAny:GetEleSize(name))
+		else
+			dragframe:SetSize(100, 100)
+		end
+
+		dragframe:HookScript("OnSizeChanged", MoveAny.Profiler.Wrap("script DragFrame OnSizeChanged", function(sel) MoveAny:UpdateDragLevel(sel) end))
+		dragframe:HookScript("OnShow", function(sel) MoveAny:UpdateDragLevel(sel) end)
+		hooksecurefunc(dragframe, "SetScale", function(sel) MoveAny:UpdateDragLevel(sel) end)
+		MoveAny:UpdateDragLevel(dragframe)
+		MoveAny:SafeAnchorDrag(dragframe, frame or UIParent, 0, 0)
+		if NineSliceUtil and C_Texture and C_Texture.GetAtlasInfo and C_Texture.GetAtlasInfo("editmode-actionbar-highlight-NineSlice-Corner") and C_Texture.GetAtlasInfo("editmode-actionbar-selected-NineSlice-Corner") then
+			dragframe.t = CreateFrame("Frame", nil, dragframe, "NineSliceCodeTemplate")
+			dragframe.t:SetAllPoints(dragframe)
+			dragframe.t:EnableMouse(false)
+			dragframe.t:SetFrameLevel(dragframe:GetFrameLevel())
+			dragframe.t.layout = {
+				TopRightCorner = {atlas = "%s-NineSlice-Corner", mirrorLayout = true, x = 8, y = 8},
+				TopLeftCorner = {atlas = "%s-NineSlice-Corner", mirrorLayout = true, x = -8, y = 8},
+				BottomLeftCorner = {atlas = "%s-NineSlice-Corner", mirrorLayout = true, x = -8, y = -8},
+				BottomRightCorner = {atlas = "%s-NineSlice-Corner", mirrorLayout = true, x = 8, y = -8},
+				TopEdge = {atlas = "_%s-NineSlice-EdgeTop"},
+				BottomEdge = {atlas = "_%s-NineSlice-EdgeBottom"},
+				LeftEdge = {atlas = "!%s-NineSlice-EdgeLeft"},
+				RightEdge = {atlas = "!%s-NineSlice-EdgeRight"},
+				Center = {atlas = "%s-NineSlice-Center", x = -8, y = 8, x1 = 8, y1 = -8},
+			}
+			dragframe.t.highlight = CreateFrame("Frame", nil, dragframe.t, "NineSliceCodeTemplate")
+			dragframe.t.highlight:SetAllPoints(dragframe.t)
+			dragframe.t.highlight:EnableMouse(false)
+			dragframe.t.highlight:SetFrameLevel(dragframe:GetFrameLevel())
+			dragframe.t.highlight:Hide()
+			function dragframe.t:EnsureLayout()
+				if self.maBuilt then return end
+				self.maBuilt = true
+				NineSliceUtil.ApplyLayout(self.highlight, self.layout, "editmode-actionbar-highlight")
+				self.highlight:SetBlendMode("ADD")
+				self.highlight:SetAlpha(0.4)
+				local color = self.maColor
+				if color then
+					self:SetVertexColor(color[1], color[2], color[3], color[4])
+				else
+					self:SetVertexColor(MoveAny:GetColor("el"))
+				end
+			end
+
+			dragframe:HookScript("OnShow", function() dragframe.t:EnsureLayout() end)
+			function dragframe.t:SetVertexColor(r, g, b, a)
+				self.maColor = self.maColor or {}
+				self.maColor[1], self.maColor[2], self.maColor[3], self.maColor[4] = r, g, b, a
+				if not self.maBuilt then return end
+				local kit = dragframe == MACurrentEle and "editmode-actionbar-selected" or "editmode-actionbar-highlight"
+				if self.textureKit ~= kit then
+					NineSliceUtil.ApplyLayout(self, self.layout, kit)
+					self.textureKit = kit
+				end
+
+				for piece in pairs(self.layout) do
+					self[piece]:SetDesaturated(true)
+					self[piece]:SetVertexColor(r, g, b, a or 1)
+					self.highlight[piece]:SetDesaturated(true)
+					self.highlight[piece]:SetVertexColor(r, g, b, a or 1)
+				end
+			end
+
+			function dragframe.t:SetAlpha(alpha)
+				self.highlight:SetShown(alpha > 0.4)
+			end
+
+			local function KeepBorderScale()
+				local scale = dragframe:GetScale()
+				if MoveAny:IsSecret(scale) or not scale or scale <= 0 then return end
+				dragframe.t:SetScale(1 / scale)
+			end
+
+			hooksecurefunc(dragframe, "SetScale", KeepBorderScale)
+			KeepBorderScale()
+		else
+			dragframe.t = dragframe:CreateTexture(name .. "_MA_DRAG.t", "BACKGROUND", nil, 1)
+			dragframe.t:SetAllPoints(dragframe)
+			if dragframe.t.SetColorTexture then
+				dragframe.t:SetColorTexture(1, 1, 1, 1)
+			else
+				dragframe.t:SetTexture(1, 1, 1, 1)
+			end
+		end
+
+		dragframe.t:SetVertexColor(MoveAny:GetColor("el"))
+		dragframe.t:SetAlpha(0.4)
+		do
+			dragframe.name = dragframe:CreateFontString(nil, nil, "GameFontHighlightLarge")
+			dragframe.name:SetPoint("CENTER", dragframe, "CENTER", 0, 6)
+			local enab, forc = MoveAny:IsInEditModeEnabled(name)
+			if enab and not forc then lstr = lstr .. " |cFFFFFF00" .. MoveAny:Trans("LID_ISENABLEDINEDITMODE") end
+			dragframe.name:SetText(lstr)
+			local font, _, fontFlags = dragframe.name:GetFont()
+			if font then dragframe.name:SetFont(font, 15, fontFlags) end
+			dragframe.name:SetText(lstr)
+			dragframe.name:Hide()
+		end
+
+		do
+			dragframe.desc = dragframe:CreateFontString(nil, nil, "GameFontHighlightLarge")
+			dragframe.desc:SetPoint("CENTER", dragframe, "CENTER", 0, -9)
+			dragframe.desc:SetText(MoveAny:Trans("LID_RIGHTCLICKFOROPTIONS"))
+			local font2, _, fontFlags2 = dragframe.name:GetFont()
+			if font2 then dragframe.desc:SetFont(font2, 10, fontFlags2) end
+			dragframe.desc:SetText(MoveAny:Trans("LID_RIGHTCLICKFOROPTIONS"))
+			dragframe.desc:Hide()
+		end
+
+		function dragframe:UpdateLanguage()
+			local text = MoveAny:Trans(tab.lstr)
+			if lstri then text = format(text, lstri) end
+			local enab, forc = MoveAny:IsInEditModeEnabled(name)
+			if enab and not forc then text = text .. " |cFFFFFF00" .. MoveAny:Trans("LID_ISENABLEDINEDITMODE") end
+			self.name:SetText(text)
+			self.desc:SetText(MoveAny:Trans("LID_RIGHTCLICKFOROPTIONS"))
+		end
+
+		dragframe:SetScript("OnEnter", function()
+			if dragframe ~= MACurrentEle then
+				dragframe.name:Show()
+				dragframe.desc:Show()
+			end
+
+			dragframe.t:SetAlpha(0.8)
+			if ma_setup[dragframe] == nil and not InCombatLockdown() then
+				ma_setup[dragframe] = true
+				dragframe:EnableKeyboard(true)
+				dragframe:SetPropagateKeyboardInput(true)
+				dragframe:HookScript("OnKeyDown", function(sel, btn)
+					if dragframe == MACurrentEle then
+						local p1, _, p3, p4, p5 = MoveAny:GetElePoint(name)
+						if btn == "RIGHT" then
+							MoveAny:SetElePoint(name, p1, MoveAny:GetMainPanel(), p3, p4 + 1, p5)
+						elseif btn == "LEFT" then
+							MoveAny:SetElePoint(name, p1, MoveAny:GetMainPanel(), p3, p4 - 1, p5)
+						elseif btn == "UP" then
+							MoveAny:SetElePoint(name, p1, MoveAny:GetMainPanel(), p3, p4, p5 + 1)
+						elseif btn == "DOWN" then
+							MoveAny:SetElePoint(name, p1, MoveAny:GetMainPanel(), p3, p4, p5 - 1)
+						end
+					else
+						return
+					end
+				end)
+			end
+		end)
+
+		dragframe:SetScript("OnLeave", function()
+			if dragframe ~= MACurrentEle then
+				dragframe.name:Hide()
+				dragframe.desc:Hide()
+			end
+
+			dragframe.t:SetAlpha(0.4)
+		end)
+
+		dragframe:SetScript("OnMouseDown", function(sel, btn)
+			local fram = _G[name]
+			if btn == "LeftButton" then MoveAny:SelectEle(sel) end
+			if btn == "LeftButton" then
+				MoveAny:DetachDrag(dragframe)
+				dragframe:SetMovable(true)
+				dragframe:StartMoving()
+				ma_ismoving[dragframe] = true
+				if MoveAny:IsEnabled("SNAPTOELEMENTS", true) then dragframe:SetScript("OnUpdate", UpdateSnapPreview) end
+			elseif btn == "RightButton" then
+				MoveAny:ToggleElementOptions(name, fram, dragframe)
+			end
+		end)
+
+		dragframe:SetScript("OnMouseUp", function()
+			local fram = _G[name]
+			if ma_ismoving[dragframe] then
+				ma_ismoving[dragframe] = false
+				dragframe:SetScript("OnUpdate", nil)
+				HideSnapPreview()
+				local dx, dy = nil, nil
+				if MoveAny:IsEnabled("SNAPTOELEMENTS", true) then dx, dy = FindEleSnap(dragframe) end
+				dragframe:StopMovingOrSizing()
+				dragframe:SetMovable(false)
+				local op1, _, op3, op4, op5 = MoveAny:GetElePoint(name)
+				local np1, _, np3, p4, p5 = dragframe:GetPoint()
+				local eff = dragframe:GetEffectiveScale()
+				if not MoveAny:CanAccessValues(np1, np3, p4, p5, eff) then
+					dragframe:SetMovable(true)
+					MoveAny:SafeAnchorDrag(dragframe, fram, posx, posy)
+
+					return
+				end
+				local np4 = dx and p4 + dx / eff or MoveAny:Snap(p4)
+				local np5 = dy and p5 + dy / eff or MoveAny:Snap(p5)
+				if fram and fram.GetSize and type(np1) == "string" then
+					local fw, fh = fram:GetSize()
+					local mw, mh = dragframe:GetSize()
+					local fs = fram:GetEffectiveScale()
+					if MoveAny:CanAccessValues(fw, fh, mw, mh, fs) and fw > 0 and fh > 0 and eff > 0 then
+						fw, fh = fw * fs / eff, fh * fs / eff
+						local fx, fy = 0, 0
+						if strfind(np1, "LEFT") then fx = -0.5 elseif strfind(np1, "RIGHT") then fx = 0.5 end
+						if strfind(np1, "BOTTOM") then fy = -0.5 elseif strfind(np1, "TOP") then fy = 0.5 end
+						np4 = np4 + fx * (fw - mw) - (posx or 0)
+						np5 = np5 + fy * (fh - mh) - (posy or 0)
+					end
+				end
+				if tab.resizable then
+					local x, y = dragframe:GetCenter()
+					local root = MoveAny:GetMainPanel()
+					local rootScale = root:GetEffectiveScale()
+					np1, np3 = "CENTER", "BOTTOMLEFT"
+					np4 = (x * eff + (dx or 0) - root:GetLeft() * rootScale) / eff - posx
+					np5 = (y * eff + (dy or 0) - root:GetBottom() * rootScale) / eff - posy
+				end
+				if name == "StaticPopup1" and np3 then
+					local x, y = dragframe:GetCenter()
+					local root = MoveAny:GetMainPanel()
+					local rootScale = root:GetEffectiveScale()
+					local scale = fram:GetEffectiveScale()
+					local rx, ry = root:GetCenter()
+					if strfind(np3, "LEFT") then rx = root:GetLeft() elseif strfind(np3, "RIGHT") then rx = root:GetRight() end
+					if strfind(np3, "TOP") then ry = root:GetTop() elseif strfind(np3, "BOTTOM") then ry = root:GetBottom() end
+					np1 = np3
+					np4 = (x * eff + (dx or 0) - rx * rootScale) / scale
+					np5 = (y * eff + (dy or 0) - ry * rootScale) / scale
+					np4 = dx and MoveAny:MathR(np4, 2) + 0 or MoveAny:Snap(np4)
+					np5 = dy and MoveAny:MathR(np5, 2) + 0 or MoveAny:Snap(np5)
+				end
+
+				if np1 ~= op1 or np3 ~= op3 or np4 ~= op4 or np5 ~= op5 then MoveAny:SetElePoint(name, np1, MoveAny:GetMainPanel(), np3, np4, np5) end
+				if dragframe.opt and dragframe.opt.elePos then dragframe.opt.elePos:UpdateText() end
+				dragframe:SetMovable(true)
+				MoveAny:SafeAnchorDrag(dragframe, fram, posx, posy)
+			end
+		end)
+
+		tinsert(MoveAny:GetDragFrames(), dragframe)
+	end
+
+	MoveAny.Profiler.Mark("RW 3 create mover")
+	local dragf = MoveAny:GetDragFromName(name)
+	if frame and MoveAny:IsEditorMoverVisible(name) then
+		dragf:Show()
+	else
+		dragf:Hide()
+	end
+
+	if frame == nil then
+		if missingWidgets[name] == nil then missingWidgets[name] = tab end
+		return false
+	end
+
+	if missingWidgets[name] then missingWidgets[name] = nil end
+	if giveUpWidgets[name] then giveUpWidgets[name] = nil end
+	MoveAny.registeredWidgets[name] = tab
+	MoveAny:After(1, function()
+		enabled1, forced1 = MoveAny:IsInEditModeEnabled(name)
+		enabled2, forced2 = MoveAny:IsInEditModeEnabled(lstr)
+		if (enabled1 or enabled2) and (not forced1 and not forced2) then
+			MoveAny:AddEditModeConflict(name, lstr, lstr)
+			return
+		end
+	end, "RegisterWidget 1")
+
+	--MoveAny:TrySetParent(frame, MoveAny:GetMainPanel())
+	if cleft or cright or ctop or cbottom then
+		local l = cleft or 0
+		local r = cright or 0
+		local t = ctop or 0
+		local b = cbottom or 0
+		if frame.SetClampRectInsets then
+			hooksecurefunc(frame, "SetClampRectInsets", function(sel, ...)
+				if ma_scri[sel] then return end
+				ma_scri[sel] = true
+				sel:SetClampRectInsets(l, r, t, b)
+				local df = MoveAny:GetDragFromName(name)
+				if df then if tab.resizable then df:SetClampRectInsets(0, 0, 0, 0) else df:SetClampRectInsets(l, r, t, b) end end
+				ma_scri[sel] = false
+			end)
+
+			frame:SetClampRectInsets(l, r, t, b)
+		end
+	end
+
+	MoveAny.Profiler.Mark("RW 4 clamp/checks")
+	tinsert(MoveAny:GetEleFrames(), frame)
+	MoveAny:AddAlphaFrame(frame)
+	if MoveAny.SafeUpdateAlphas then MoveAny:SafeUpdateAlphas(MoveAny:GetEnumAlpha().ADDED) end
+	MoveAny.Profiler.Mark("RW 5 alphas")
+	if frame and frame.GetChildren then
+		MoveAny:ForeachChildren(frame, function(child)
+			function child:GetMAEle()
+				return frame
+			end
+
+			MoveAny:RegisterChildAlphaFrame(child, frame)
+		end, "GetMAEle 1")
+	end
+
+	if frame.SetMovable then
+		frame:SetMovable(true)
+		if frame.SetUserPlaced and frame:IsMovable() then frame:SetUserPlaced(userplaced or false) end
+	end
+
+	if frame.SetDontSavePosition then frame:SetDontSavePosition(true) end
+	MoveAny:SetClampedToScreen(frame, true, "RegisterWidget 3")
+	if frame ~= TalkingHeadFrame and frame ~= Minimap and frame ~= MinimapCluster and frame.SetIgnoreParentAlpha ~= nil and MoveAny:GetParent(frame) ~= UIParent and MoveAny:GetParent(frame) ~= MoveAny:GetMainPanel() then frame:SetIgnoreParentAlpha(true) end
+	if not MoveAny:GetEleOption(name, "Hide", false, "Hide2") then
+		if frame == MACurrentEle then
+			dragf.t:SetVertexColor(MoveAny:GetColor("se"))
+		elseif MoveAny:GetEleOption(name, "ClickThrough", false, "ClickThrough2") then
+			dragf.t:SetVertexColor(MoveAny:GetColor("clickthrough"))
+			if frame == MABuffBar then
+				function frame:UpdateBuffMouse()
+					for i = 1, 32 do
+						local bb = _G["BuffButton" .. i]
+						if bb then
+							function bb:GetMAEle()
+								return MABuffBar or BuffFrame
+							end
+
+							bb:EnableMouse(false)
+						end
+
+						if not MoveAny:IsEnabled("DEBUFFS", false) then
+							local db = _G["DebuffButton" .. i]
+							if db then
+								function db:GetMAEle()
+									return MABuffBar or BuffFrame
+								end
+
+								db:EnableMouse(false)
+							end
+						end
+					end
+				end
+
+				local bbf = CreateFrame("FRAME")
+				MoveAny:RegisterEvent(bbf, "UNIT_AURA", "player")
+				MoveAny:OnEvent(bbf, function() frame:UpdateBuffMouse() end, "bbf 12")
+				frame:UpdateBuffMouse()
+			elseif frame == MoveAny:GetDebuffBar() then
+				function frame:UpdateDebuffMouse()
+					for i = 1, 32 do
+						local db = _G["DebuffButton" .. i]
+						if db then
+							function db:GetMAEle()
+								return MADebuffBar or DebuffFrame
+							end
+
+							db:EnableMouse(false)
+						end
+					end
+				end
+
+				local bbf = CreateFrame("FRAME")
+				MoveAny:RegisterEvent(bbf, "UNIT_AURA", "player")
+				MoveAny:OnEvent(bbf, function() frame:UpdateDebuffMouse() end, "bbf 11")
+				frame:UpdateDebuffMouse()
+			elseif frame == TargetFrameBuffMover then
+				function frame:UpdateBuffMouse()
+					for i, bb in pairs(MoveAny:UpdateTargetFrameBuffs()) do
+						if bb then bb:EnableMouse(false) end
+					end
+
+					for i, db in pairs(MoveAny:UpdateTargetFrameDebuffs()) do
+						if db then db:EnableMouse(false) end
+					end
+				end
+
+				local bbf = CreateFrame("FRAME")
+				MoveAny:RegisterEvent(bbf, "UNIT_AURA", "target")
+				MoveAny:OnEvent(bbf, function() frame:UpdateBuffMouse() end, "bbf 10")
+				frame:UpdateBuffMouse()
+			elseif frame == _G["FocusFrameBuffMover"] then
+				function frame:UpdateBuffMouse()
+					for i = 1, 32 do
+						local bb = _G["FocusFrameBuff" .. i]
+						if bb then bb:EnableMouse(false) end
+						local db = _G["FocusFrameDebuff" .. i]
+						if db then db:EnableMouse(false) end
+					end
+				end
+
+				local bbf = CreateFrame("FRAME")
+				MoveAny:RegisterEvent(bbf, "UNIT_AURA", "focus")
+				MoveAny:OnEvent(bbf, function() frame:UpdateBuffMouse() end, "bbf 9")
+				frame:UpdateBuffMouse()
+			end
+		else
+			dragf.t:SetVertexColor(MoveAny:GetColor("el"))
+		end
+	end
+
+	if MoveAny:GetEleOption(name, "ClickThrough", false, "ClickThrough3") then
+		hooksecurefunc(frame, "EnableMouse", function(sel, bo)
+			if ma_enablemouse[sel] then return end
+			ma_enablemouse[sel] = true
+			sel:EnableMouse(false)
+			if sel.AuraContainer then
+				MoveAny:ForeachChildren(sel.AuraContainer, function(child) if C_Widget.IsWidget(child) then child:EnableMouse(false) end end, "EnableMouse 2")
+			else
+				MoveAny:ForeachChildren(sel, function(child) if C_Widget.IsWidget(child) then child:EnableMouse(false) end end, "EnableMouse 1")
+			end
+
+			ma_enablemouse[sel] = false
+		end)
+
+		frame:EnableMouse(false)
+	end
+
+	MoveAny.Profiler.Mark("RW 6 hide/clickthrough")
+	local elesetpoint = false
+	local movableSetup = false
+	local ma_secure = secure
+	local bToSmall = false
+	if sw or sh then bToSmall = true end
+	sw = sw or frame:GetWidth()
+	sh = sh or frame:GetHeight()
+	sw = MoveAny:MathR(sw)
+	sh = MoveAny:MathR(sh)
+	if (not tab.active or tab.active()) and MoveAny:GetElePoint(name) == nil then
+		local an, parent, re, px, py = frame:GetPoint()
+		local fl, fb = frame:GetLeft(), frame:GetBottom()
+		local pl, pb = nil, nil
+		if parent ~= nil and parent.GetLeft then pl, pb = parent:GetLeft(), parent:GetBottom() end
+		if (parent == nil or parent == UIParent or parent == MoveAny:GetMainPanel()) and an ~= nil and re ~= nil and MoveAny:CanAccessValues(px, py) then
+			MoveAny:SetElePoint(name, an, MoveAny:GetMainPanel(), re, MoveAny:Snap(px), MoveAny:Snap(py))
+		elseif MoveAny:CanAccessValues(fl, fb) and fl and fb then
+			MoveAny:SetElePoint(name, "BOTTOMLEFT", MoveAny:GetMainPanel(), "BOTTOMLEFT", MoveAny:Snap(fl), MoveAny:Snap(fb))
+		elseif parent ~= nil and MoveAny:CanAccessValues(pl, pb) then
+			MoveAny:SetElePoint(name, an, MoveAny:GetMainPanel(), re, MoveAny:Snap(pl), MoveAny:Snap(pb))
+		else
+			local an1 = tab.an or "CENTER"
+			local re1 = tab.re or "CENTER"
+			local px1 = tab.px or 0
+			local py1 = tab.py or 0
+			MoveAny:SetElePoint(name, an1, MoveAny:GetMainPanel(), re1, px1, py1)
+		end
+	end
+
+	local osw, osh = MoveAny:GetEleSize(name)
+	if tab.resizable and osw and osh then
+		sw, sh = osw, osh
+	elseif osw ~= sw or osh ~= sh then
+		MoveAny:SetEleSize(name, sw, sh)
+	end
+	if tab.fixedMoverSize then MoveAny:SafeAnchorDrag(MoveAny:GetDragFromName(name), frame, posx, posy) end
+	MoveAny.Profiler.Mark("RW 7 elepoint/size")
+	local pointFunc = "SetPoint"
+	if frame.SetPointBase then pointFunc = "SetPointBase" end
+	hooksecurefunc(frame, pointFunc, function(sel, p1, p2, p3, p4, p5)
+		if tab.active then MoveAny:UpdateEditorVisibility() end
+
+		if elesetpoint or tab.active and not tab.active() then return end
+		if not ma_secure then
+			if not movableSetup then
+				movableSetup = true
+				pcall(function()
+					if sel.SetMovable then sel:SetMovable(true) end
+					if sel.SetUserPlaced and sel.SetMovable and sel:IsMovable() then sel:SetUserPlaced(userplaced or false) end
+				end)
+			end
+
+			elesetpoint = true
+			local dbp1, _, dbp3, dbp4, dbp5 = MoveAny:GetElePoint(name)
+			if dbp1 and dbp3 then MoveAny:SetPoint(sel, dbp1, nil, dbp3, dbp4, dbp5) end
+			if sel == MAMenuBar then MoveAny:UpdateActionBar(sel, "RegisterWidget sel == MAMenuBar") end
+			elesetpoint = false
+			if tab.onPositionChanged then tab.onPositionChanged(sel) end
+		end
+	end)
+
+	hooksecurefunc(frame, "SetParent", function(sel, parent)
+		if MoveAny:GetEleOption(name, "Hide", false, "Hide4") then return end
+		if not MoveAny:GetEleOption(name, "LockParent", false, "LockParent1") then return end
+		local target = MoveAny:GetMainPanel()
+		if parent ~= target then
+			if InCombatLockdown() and sel:IsProtected() then return end
+			sel:SetParent(target)
+			local dbp1, _, dbp3, dbp4, dbp5 = MoveAny:GetElePoint(name)
+			if dbp1 and dbp3 then MoveAny:SetPoint(sel, dbp1, target, dbp3, dbp4, dbp5) end
+		end
+	end)
+
+	if not ma_secure then
+		local function applyElePoint()
+			if tab.active and not tab.active() then return end
+			local dbp1, _, dbp3, dbp4, dbp5 = MoveAny:GetElePoint(name)
+			if dbp1 and dbp3 then
+				if noreparent then
+					MoveAny:SetPoint(frame, dbp1, MoveAny:GetParent(frame), dbp3, dbp4, dbp5)
+				else
+					MoveAny:SetPoint(frame, dbp1, MoveAny:GetMainPanel(), dbp3, dbp4, dbp5)
+				end
+			end
+		end
+
+		reapplyPoints[name] = applyElePoint
+		applyElePoint()
+	end
+
+	hooksecurefunc(frame, "SetScale", function(sel, scale)
+		if tab.active and not tab.active() then return end
+		local icl = InCombatLockdown()
+		if icl and sel:IsProtected() then return false end
+		if ma_setscale_ele[sel] then return end
+		ma_setscale_ele[sel] = true
+		local newScale = MoveAny:GetEleScale(name) or 1
+		if MoveAny:CheckIfMicroMenuInVehicle(frame) then newScale = 1 end
+		if newScale and type(newScale) == "number" and newScale > 0 and scale ~= newScale and not icl then sel:SetScale(newScale) end
+		local dragframe = MoveAny:GetDragFromName(name)
+		if dragframe then dragframe:SetScale(name == "StaticPopup1" and sel:GetEffectiveScale() / dragframe:GetParent():GetEffectiveScale() or newScale) end
+		ma_setscale_ele[sel] = false
+	end)
+
+	if frame.SetFrameStrata then
+		MoveAny:StoreEleBaseLayer(name, frame)
+		hooksecurefunc(frame, "SetFrameStrata", function(sel) MoveAny:ApplyEleLayer(name, sel) end)
+		hooksecurefunc(frame, "SetFrameLevel", function(sel) MoveAny:ApplyEleLayer(name, sel) end)
+	end
+
+	hooksecurefunc(frame, "SetSize", function(sel, w, h)
+		if tab.fixedMoverSize then return end
+		if InCombatLockdown() and sel:IsProtected() then return false end
+		local isToSmall = false
+		local df = MoveAny:GetDragFromName(name)
+		if df.SetSize then df:SetSize(w, h) end
+		if w < sw then
+			w = sw
+			isToSmall = true
+		end
+
+		if h < sh then
+			h = sh
+			isToSmall = true
+		end
+
+		if bToSmall and isToSmall then
+			if df.SetSize then df:SetSize(w, h) end
+			if sel.SetSize then sel:SetSize(w, h) end
+		end
+	end)
+
+	MoveAny.Profiler.Mark("RW 8 hooks")
+	MoveAny:SafeExec(frame, function()
+		if not tab.fixedMoverSize then frame:SetSize(sw, sh) end
+		if (not tab.active or tab.active()) and MoveAny:GetEleScale(name) and MoveAny:GetEleScale(name) > 0 then frame:SetScale(MoveAny:GetEleScale(name)) end
+	end, "RegisterWidget SetScale " .. tostring(name))
+
+	MoveAny:ApplyEleLayer(name, frame)
+	local dragframe = MoveAny:GetDragFromName(name)
+	if name == "StaticPopup1" then dragframe:SetScale(frame:GetEffectiveScale() / dragframe:GetParent():GetEffectiveScale()) end
+	dragframe:SetSize(sw, sh)
+	MoveAny:SafeAnchorDrag(dragframe, frame, posx, posy)
+	if MoveAny:GetEleOption(name, "Hide", false, "Hide3") then
+		MoveAny:HideFrame(frame)
+		MoveAny:After(1, function() MoveAny:HideFrame(frame) end, "HIDE DELAY 1")
+		MoveAny:After(4, function() MoveAny:HideFrame(frame) end, "HIDE DELAY 2")
+		dragframe.t:SetVertexColor(MoveAny:GetColor("hidden"))
+	end
+
+	if MoveAny:IsEditorMoverVisible(name) then dragframe:Show() else dragframe:Hide() end
+
+	if tab.resizable then
+		local updatingSize = false
+		local function UpdateMoverSize(width, height)
+			if updatingSize then return end
+			updatingSize = true
+			dragframe:SetSize(width + (cright or 0) - (cleft or 0), height + (ctop or 0) - (cbottom or 0))
+			updatingSize = false
+		end
+
+		hooksecurefunc(dragframe, "SetSize", function(_, width, height) UpdateMoverSize(width, height) end)
+		UpdateMoverSize(frame:GetSize())
+		local grip = MoveAny:CreateSizeGrip(dragframe, 24)
+		local function StopResize()
+			if not grip.resizing then return end
+			grip.resizing = false
+			grip:SetScript("OnUpdate", nil)
+			MoveAny:SetEleSize(name, frame:GetSize())
+			MoveAny:EnableSave("ResizeChat", name, true, false, true)
+		end
+
+		grip:SetScript("OnMouseDown", function(sel, button)
+			if button ~= "LeftButton" or InCombatLockdown() then return end
+			sel.cursorX, sel.cursorY = GetCursorPosition()
+			sel.width, sel.height = frame:GetSize()
+			local scale = frame:GetEffectiveScale()
+			local root = MoveAny:GetMainPanel()
+			local rootScale = root:GetEffectiveScale()
+			sel.left, sel.top = frame:GetLeft(), frame:GetTop()
+			if not sel.left or not sel.top then return end
+			MoveAny:SetElePoint(name, "TOPLEFT", root, "BOTTOMLEFT", sel.left - root:GetLeft() * rootScale / scale, sel.top - root:GetBottom() * rootScale / scale)
+			sel.resizing = true
+			sel:SetScript("OnUpdate", function()
+				if InCombatLockdown() then
+					StopResize()
+					return
+				end
+
+				local x, y = GetCursorPosition()
+				local scale = frame:GetEffectiveScale()
+				local minWidth, minHeight, maxWidth, maxHeight
+				if frame.GetResizeBounds then
+					minWidth, minHeight, maxWidth, maxHeight = frame:GetResizeBounds()
+				elseif frame.GetMinResize then
+					minWidth, minHeight = frame:GetMinResize()
+					maxWidth, maxHeight = frame:GetMaxResize()
+				end
+
+				minWidth = math.max(minWidth or 0, CHAT_FRAME_MIN_WIDTH or 100)
+				minHeight = math.max(minHeight or 0, CHAT_FRAME_NORMAL_MIN_HEIGHT or 50)
+				local screenRight = UIParent:GetRight() * UIParent:GetEffectiveScale() / scale
+				local screenBottom = UIParent:GetBottom() * UIParent:GetEffectiveScale() / scale
+				local limitWidth = math.max(1, screenRight - sel.left - (cright or 0))
+				local limitHeight = math.max(1, sel.top - screenBottom + (cbottom or 0))
+				if maxWidth and maxWidth > 0 then limitWidth = math.min(limitWidth, maxWidth) end
+				if maxHeight and maxHeight > 0 then limitHeight = math.min(limitHeight, maxHeight) end
+				local width = math.min(limitWidth, math.max(minWidth, sel.width + (x - sel.cursorX) / scale))
+				local height = math.min(limitHeight, math.max(minHeight, sel.height - (y - sel.cursorY) / scale))
+				frame:SetSize(width, height)
+			end)
+		end)
+		grip:SetScript("OnMouseUp", StopResize)
+		grip:SetScript("OnHide", StopResize)
+		frame:HookScript("OnSizeChanged", MoveAny.Profiler.Wrap("script Element OnSizeChanged", function(_, width, height) UpdateMoverSize(width, height) end))
+		grip:Show()
+	end
+
+	MoveAny.Profiler.Mark("RW 9 resize/finish")
+	if setup then setup() end
+	MoveAny.Profiler.Mark("RW 10 setup")
+end
+
+function MoveAny:AnyActionbarEnabled()
+	if MoveAny:GetWoWBuild() ~= "RETAIL" and MoveAny:GetWoWBuild() ~= "CLASSIC" and MoveAny:GetWoWBuild() ~= "TBC" and MoveAny:GetWoWBuild() ~= "MISTS" then
+		return MoveAny:IsEnabled("ACTIONBARS", false) or MoveAny:IsEnabled("ACTIONBAR1", false) or MoveAny:IsEnabled("ACTIONBAR3", false) or MoveAny:IsEnabled("ACTIONBAR4", false) or MoveAny:IsEnabled("ACTIONBAR7", false) or MoveAny:IsEnabled("ACTIONBAR8", false) or MoveAny:IsEnabled("ACTIONBAR9", false) or MoveAny:IsEnabled("ACTIONBAR10", false)
+	else
+		return false
+	end
+end

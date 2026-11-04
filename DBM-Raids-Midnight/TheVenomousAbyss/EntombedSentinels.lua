@@ -1,0 +1,409 @@
+local mod	= DBM:NewMod(2874, "DBM-Raids-Midnight", 1, 1320)
+--local L		= mod:GetLocalizedStrings()--Nothing to localize for blank mods
+
+mod:SetRevision("20261026012050")
+mod:SetCreatureID(258558, 258557)
+mod:SetEncounterID(3445)
+--mod:SetHotfixNoticeRev(20250823000000)
+--mod:SetMinSyncRevision(20250823000000)
+mod:SetZone(3004)
+mod:SetBossHPInfoToHighest()
+
+mod:RegisterCombat("combat")
+
+--TODO, tank threat based checks to antispam tank alerts
+--TODO, personal alerts for blighted Blood? or just generic warning fine?
+--TODO, https://www.wowhead.com/ptr/spell=1284485/debilitating-miasma isn't in journal but https://www.wowhead.com/ptr/spell=1288232/unstable-miasma is. I suspect only one of them exists (ID 642)
+--TODO, find encounter event Ids for warnings that will likely hook up to mythic venom types. they're probably assigned to Dungeon Ecounter 0
+DBM:RegisterAltSpellName(1288232, DBM_COMMON_L.GROUPSOAK)--Unstable Miasma --> Group Soak
+DBM:RegisterAltSpellName(1284251, DBM_COMMON_L.BIG_ADDS)--Venom Coagulation --> Big Adds
+DBM:RegisterAltSpellName(1284434, DBM_COMMON_L.GROUPSOAK.. " ".. DBM_COMMON_L.ORBS)--Toxic Droplets --> Soak Orbs
+DBM:RegisterAltSpellName(1284483, DBM_COMMON_L.POOL.. " ".. DBM_COMMON_L.DEBUFFS)--Blighted Blood --> Pool Debuffs
+DBM:RegisterAltSpellName(1284588, DBM_COMMON_L.MATHPUZZLE)--Vitriolic Stasis --> Math Puzzle
+DBM:RegisterAltSpellName(1296878, DBM_COMMON_L.CIRCLES)
+--DBM:RegisterAltSpellName(1296878, DBM_COMMON_L.MATHPUZZLE)--Not sure what to give it yet
+
+--Both/Shared
+local warnVitriolicStasis				= mod:NewCountAnnounce(1284588, 2)--Hardcode only
+
+local specWarnShiftingProtovenom		= mod:NewSpecialWarningCount(1296878, nil, nil, nil, 3, 2, 4, nil, "scatter")
+
+local timerVitriolicStasisCD			= mod:NewCDCountTimer(20.5, 1284588, nil, nil, nil, 6)
+local timerShiftingProtovenomCD			= mod:NewCDCountTimer(20.5, 1296878, nil, nil, nil, 2, nil, DBM_COMMON_L.MYTHIC_ICON)
+local timerBerserkCD					= mod:NewBerserkTimer(600)
+
+mod:AddBoolOption("AdvancedBossFiltering", true, "misc")
+mod:AddInfoFrameOption(nil, true)
+mod:AddAuraSoundOption(1284590, true, 1284588, 1, 1, "phasechange", 2, 0)--Helical Toxins (better audio?)
+--Debuffs that do not appear in combat log but MIGHT still work with aura sounds?
+mod:AddAuraSoundOption(1296880, true, 1296878, 1, 1, "movetopartner", 20, 0)--Shifting Protovenom
+--Breath of Ula'tek (boss1)
+mod:AddTimerLine(DBM:EJ_GetSectionInfo(34951))
+local specWarnVenomCoagulation			= mod:NewSpecialWarningCount(1284251, nil, nil, nil, 2, 2, nil, nil, "bigmob")
+local specWarnToxicDroplets				= mod:NewSpecialWarningCount(1284434, nil, nil, nil, 2, 2, nil, nil, "helpsoak")
+local specWarnEmpoweringSlam			= mod:NewSpecialWarningDefensive(1284458, nil, nil, nil, 1, 2, nil, nil, "defensive")
+
+local timerVenomCoagulationCD			= mod:NewCDCountTimer(20.5, 1284251, nil, nil, nil, 1, nil, DBM_COMMON_L.DAMAGE_ICON)
+local timerToxicDropletsCD				= mod:NewCDCountTimer(20.5, 1284434, nil, nil, nil, 5)
+local timerEmpoweringSlamCD				= mod:NewCDCountTimer(20.5, 1284458, nil, "Tank|Healer", nil, 5, nil, DBM_COMMON_L.TANK_ICON)
+--Blood of Ula'tek (boss2)
+mod:AddTimerLine(DBM:EJ_GetSectionInfo(34953))
+local warnUnstableMiasma				= mod:NewCountAnnounce(1288232, 2)--Hardcode only
+
+local specWarnBloodvenomInjection		= mod:NewSpecialWarningDefensive(1284487, nil, nil, nil, 1, 2, nil, nil, "defensive")
+
+local timerBloodvenomInjectionCD		= mod:NewCDCountTimer(20.5, 1284487, nil, "Tank|Healer", nil, 5, nil, DBM_COMMON_L.TANK_ICON)
+local timerBlightedBloodCD				= mod:NewCDCountTimer(20.5, 1284483, nil, "Healer", nil, 3, nil, DBM_COMMON_L.MAGIC_ICON)
+local timerUnstableMiasmaCD				= mod:NewCDCountTimer(20.5, 1288232, nil, nil, nil, 3)
+
+--Aura sounds cannot be changed in combat. Pools do not drop on Normal/LFR, so use a generic debuff warning there.
+--Evidence Log https://www.warcraftlogs.com/reports/xdTc1fhtKWPrbCVv?fight=29&type=auras&spells=debuffs
+mod:AddAuraSoundOption(1284471, true, 1284483, 1, 1, "poolyou", 18, 0, {[14] = "debuffyou", [17] = "debuffyou"})--Blighted Blood
+mod:AddAuraSoundOption(1284210, true, 1284210, 1, 2, "watchfeet", 8, 0)--Blood Venom (1284208 is target ID but not logged so probbably no aura either)
+mod:AddAuraSoundOption(1288260, true, 1288232, 1, 1, "gathershare", 2, 0)--Unstable Miasma
+mod:AddAuraSoundOption(1288297, true, 1288232, 1, 3, "poolyou", 18, 0, {[14] = "debuffyou", [17] = "debuffyou"})--Clinging Mark (stacks from soaking unstalbe Miasma)
+mod:AddAuraSoundOption(1284491, true, 1284491, 1, 1, "poolyou", 18, {0,1}, {[14] = "debuffyou", [17] = "debuffyou"})--Bloodvenom Injection
+
+local nearBreath, nearBlood = true, true
+local badStateDetected = false--Used to track if hardcode features have failed and we need to fall back to blizz API
+--Tracks wipe-time bulk timeline resends so the next pull can restore hardcoded routing.
+local badStateDetectedAt = nil
+local badStateDetectedDuringWipeResend = false
+local seenTimelineEventIDs = {}
+local timelineEventStartTimes = {}
+local firstBerserkIgnored = false
+local next22Event = "empoweringslam"
+local pending22Caster = nil
+local pending22CasterAt = 0
+local mythic20EventCycleIndex = 1
+local batchTimerValues = {
+	[4] = true,
+	[6] = true,
+	[8] = true,
+	[10] = true,
+	[12] = true,
+	[16] = true,
+	[40] = true,
+}
+
+mod.vb.VenomCoagulationCount = 0
+mod.vb.ToxicDropletsCount = 0
+mod.vb.EmpoweringSlamCount = 0
+mod.vb.BloodvenomInjectionCount = 0
+mod.vb.BlightedBloodCount = 0
+mod.vb.DebilitatingMiasmaCount = 0
+mod.vb.VitriolicStasisCount = 0
+mod.vb.UnstableMiasmaCount = 0
+mod.vb.ShiftingProtovenomCount = 0
+
+---@param self DBMMod
+---@param breath boolean
+---@param blood boolean
+local function setBossDistance(self, breath, blood)
+	--TLCount counters already contain the next cast number, unlike completed-cast counters.
+	if nearBreath ~= breath then
+		nearBreath = breath
+		timerVenomCoagulationCD:SetFade(not breath, self.vb.VenomCoagulationCount)
+--		timerToxicDropletsCD:SetFade(not breath, self.vb.ToxicDropletsCount)
+		timerEmpoweringSlamCD:SetFade(not breath, self.vb.EmpoweringSlamCount)
+	end
+	if nearBlood ~= blood then
+		nearBlood = blood
+		timerBloodvenomInjectionCD:SetFade(not blood, self.vb.BloodvenomInjectionCount)
+		timerBlightedBloodCD:SetFade(not blood, self.vb.BlightedBloodCount)
+		timerUnstableMiasmaCD:SetFade(not blood, self.vb.UnstableMiasmaCount)
+	end
+end
+
+---@param self DBMMod
+local function updateBossDistance(self)
+	if badStateDetected then return end
+	--Disabling the option restores warnings/fades instead of leaving a far state latched.
+	--Use the hostile-unit range item, as in Amalgamation; failed item checks return "near".
+	local breath = not self.Options.AdvancedBossFiltering or self:CheckBossDistance("boss1", true, 34255, 43, nil, true)
+	local blood = not self.Options.AdvancedBossFiltering or self:CheckBossDistance("boss2", true, 34255, 43, nil, true)
+	setBossDistance(self, breath, blood)
+	self:Schedule(2, updateBossDistance, self)
+end
+
+---@param self DBMMod
+---@param dontSetAlerts boolean? Called when user has disabled DBM bars and is only using timeline, therefore we must still enable SetTimeline calls even in hardcodes
+local function setFallback(self, dontSetAlerts)
+	--Blizz API fallbacks
+	if not dontSetAlerts then
+		if self:IsTank() then
+			specWarnEmpoweringSlam:SetAlert(639, "defensive", 2, 2)
+			specWarnBloodvenomInjection:SetAlert(640, "defensive", 2, 2)
+		end
+		--if self:IsHealer() then
+		--	specWarnBlightedBlood:SetAlert(641, "helpdispel", 2, 2)
+		--end
+		specWarnVenomCoagulation:SetAlert(637, "bigmob", 2, 2)
+		specWarnToxicDroplets:SetAlert(638, "helpsoak", 2, 2)
+		specWarnShiftingProtovenom:SetAlert(788, "scatter", 2, 3)
+	end
+	--If user has DBM bars enabled, we only want to register colors to the blizz api so that the blizz bars are also colorized.
+	--If user has bars disabled, or we are in a bad state, onlyColor is false and we register countdowns as well.
+	local onlyColor = not DBM.Options.HideDBMBars and not badStateDetected
+	timerVenomCoagulationCD:SetTimeline(637, onlyColor)
+	timerToxicDropletsCD:SetTimeline(638, onlyColor)
+	timerEmpoweringSlamCD:SetTimeline(639, onlyColor)
+	timerBloodvenomInjectionCD:SetTimeline(640, onlyColor)
+	timerBlightedBloodCD:SetTimeline(641, onlyColor)
+	timerVitriolicStasisCD:SetTimeline(643, onlyColor)
+	timerUnstableMiasmaCD:SetTimeline(673, onlyColor)
+	timerBerserkCD:SetTimeline(668, onlyColor)
+	timerShiftingProtovenomCD:SetTimeline(788, onlyColor)
+end
+
+function mod:OnLimitedCombatStart()
+	self:TLCountReset()
+	self:TLBatchReset()
+	firstBerserkIgnored = false
+	next22Event = "empoweringslam"
+	pending22Caster = nil
+	pending22CasterAt = 0
+	mythic20EventCycleIndex = 1
+	badStateDetectedAt = nil
+	badStateDetectedDuringWipeResend = false
+	seenTimelineEventIDs = {}
+	timelineEventStartTimes = {}
+	self.vb.VenomCoagulationCount = 1
+	self.vb.ToxicDropletsCount = 1
+	self.vb.EmpoweringSlamCount = 1
+	self.vb.BloodvenomInjectionCount = 1
+	self.vb.BlightedBloodCount = 1
+	self.vb.DebilitatingMiasmaCount = 1
+	self.vb.VitriolicStasisCount = 1
+	self.vb.UnstableMiasmaCount = 1
+	self.vb.ShiftingProtovenomCount = 1
+	nearBreath, nearBlood = true, true
+	timerVenomCoagulationCD:SetFade(false, 1)
+	--timerToxicDropletsCD:SetFade(false, 1)
+	timerEmpoweringSlamCD:SetFade(false, 1)
+	timerBloodvenomInjectionCD:SetFade(false, 1)
+	timerBlightedBloodCD:SetFade(false, 1)
+	timerUnstableMiasmaCD:SetFade(false, 1)
+	self:Unschedule(updateBossDistance)
+	if self.Options.InfoFrame then
+		DBM.InfoFrame:Show(2, "bossdistance", 41, "minRange")
+	end
+	--Hardcode features first
+	if DBM.Options.HardcodedTimer and not badStateDetected then
+		self:IgnoreBlizzardAPI()
+		self:RegisterShortTermEvents(
+			"ENCOUNTER_TIMELINE_EVENT_ADDED",
+			"ENCOUNTER_TIMELINE_EVENT_STATE_CHANGED",
+			"UNIT_SPELLCAST_START boss1 boss2"
+		)
+		setFallback(self, true)
+		C_Item.RequestLoadItemDataByID(34255)
+		self:Schedule(2, updateBossDistance, self)
+	else
+		setFallback(self)
+	end
+end
+
+
+function mod:OnCombatEnd()
+	if self.Options.InfoFrame then
+		DBM.InfoFrame:Hide()
+	end
+	self:Unschedule(updateBossDistance)
+	setBossDistance(self, true, true)
+	self:TLCountReset()
+	self:TLBatchReset()
+	--A wipe can resend every remaining Blizzard timer, including rows that are not valid
+	--hardcoded routes. Preserve the current-pull fallback, but recover for the next pull.
+	if badStateDetected and (badStateDetectedDuringWipeResend or self:TLShouldRecoverBadState(badStateDetectedAt)) then
+		badStateDetected = false
+	end
+	badStateDetectedAt = nil
+	badStateDetectedDuringWipeResend = false
+	seenTimelineEventIDs = {}
+	timelineEventStartTimes = {}
+	firstBerserkIgnored = false
+	next22Event = "empoweringslam"
+	pending22Caster = nil
+	pending22CasterAt = 0
+	mythic20EventCycleIndex = 1
+	self:UnregisterShortTermEvents()
+end
+
+do
+	---@param self DBMMod
+	---@param timer number
+	---@param timerExact number
+	---@param eventID number
+	local function timersHeroic(self, timer, timerExact, eventID)
+		local handled = false
+		if timer == 540 then
+			handled = true
+			if firstBerserkIgnored then
+				timerBerserkCD:Start(timerExact)
+			else
+				firstBerserkIgnored = true
+			end
+		elseif timer == 4 then
+			handled = true
+			self:TLBatchStart(timer, timerEmpoweringSlamCD, timerExact, eventID, "empoweringslam", "EmpoweringSlamCount", batchTimerValues)
+		elseif timer == 6 then
+			handled = true
+			self:TLBatchStart(timer, timerBloodvenomInjectionCD, timerExact, eventID, "bloodvenominjection", "BloodvenomInjectionCount", batchTimerValues)
+		elseif timer == 8 then
+			handled = true
+			self:TLBatchStart(timer, timerVenomCoagulationCD, timerExact, eventID, "venomcoagulation", "VenomCoagulationCount", batchTimerValues)
+		elseif timer == 10 then
+			handled = true
+			self:TLBatchStart(timer, timerVenomCoagulationCD, timerExact, eventID, "venomcoagulation", "VenomCoagulationCount", batchTimerValues)
+		elseif timer == 12 then
+			handled = true
+			self:TLBatchStart(timer, timerToxicDropletsCD, timerExact, eventID, "toxicdroplets", "ToxicDropletsCount", batchTimerValues)
+		elseif timer == 16 then
+			handled = true
+			self:TLBatchStart(timer, timerUnstableMiasmaCD, timerExact, eventID, "unstablemiasma", "UnstableMiasmaCount", batchTimerValues)
+		elseif timer == 20 then
+			handled = true
+			if self:IsMythic() then
+				-- Mythic 20s cadence is repeating S, V, S (Shifting, Vitriolic, Shifting)
+				if mythic20EventCycleIndex == 2 then
+					timerVitriolicStasisCD:TLStart(timerExact, eventID, self:TLCountStart(eventID, "vitriolicstasis", "VitriolicStasisCount"))
+				else
+					--Blizzard starts 20 second timer for it, but timer is actually 18
+					timerShiftingProtovenomCD:TLStart(timerExact - 2, eventID, self:TLCountStart(eventID, "shiftingprotovenom", "ShiftingProtovenomCount"))
+				end
+				mythic20EventCycleIndex = mythic20EventCycleIndex + 1
+				if mythic20EventCycleIndex > 3 then
+					mythic20EventCycleIndex = 1
+				end
+			else
+				timerVitriolicStasisCD:TLStart(timerExact, eventID, self:TLCountStart(eventID, "vitriolicstasis", "VitriolicStasisCount"))
+			end
+		elseif timer == 22 then
+			handled = true
+			-- Timeline spell details are secret. Week 4 Mythic evidence confirms the
+			-- caster unit starts immediately before its matching 21.5s timeline row.
+			local caster = pending22Caster
+			local hasRecentCaster = caster and (GetTime() - pending22CasterAt) <= 1
+			pending22Caster = nil
+			if hasRecentCaster and caster == "boss1" then
+				next22Event = "bloodvenominjection"
+				timerEmpoweringSlamCD:TLStart(timerExact, eventID, self:TLCountStart(eventID, "empoweringslam", "EmpoweringSlamCount"))
+			elseif hasRecentCaster and caster == "boss2" then
+				next22Event = "empoweringslam"
+				timerBloodvenomInjectionCD:TLStart(timerExact, eventID, self:TLCountStart(eventID, "bloodvenominjection", "BloodvenomInjectionCount"))
+			elseif next22Event == "empoweringslam" then
+				next22Event = "bloodvenominjection"
+				timerEmpoweringSlamCD:TLStart(timerExact, eventID, self:TLCountStart(eventID, "empoweringslam", "EmpoweringSlamCount"))
+			else
+				next22Event = "empoweringslam"
+				timerBloodvenomInjectionCD:TLStart(timerExact, eventID, self:TLCountStart(eventID, "bloodvenominjection", "BloodvenomInjectionCount"))
+			end
+		elseif timer == 32 then
+			handled = true
+			timerToxicDropletsCD:TLStart(timerExact, eventID, self:TLCountStart(eventID, "toxicdroplets", "ToxicDropletsCount"))
+		elseif timer == 40 then
+			handled = true
+			self:TLBatchStart(timer, timerBlightedBloodCD, timerExact, eventID, "blightedblood", "BlightedBloodCount", batchTimerValues)
+		elseif timer == 41 then
+			handled = true
+			timerUnstableMiasmaCD:TLStart(timerExact, eventID, self:TLCountStart(eventID, "unstablemiasma", "UnstableMiasmaCount"))
+		elseif timer == 51 then
+			--Known issue: Unstable Miasma with rounded value 51 always cancels.
+			handled = true
+		elseif timer == 52 then
+			handled = true
+			if timerExact == 51.5 then
+				timerVenomCoagulationCD:TLStart(timerExact, eventID, self:TLCountStart(eventID, "venomcoagulation", "VenomCoagulationCount"))
+			else
+				--Known issue: Blighted Blood with rounded value 52 always cancels.
+			end
+		end
+
+		if not handled then--Reached end of chain without finding a valid timer, this means hardcode mod has failed, so we need to disable hardcoded features and fall back to blizz API
+			badStateDetected = true
+			self:ResumeBlizzardAPI()
+			self:Unschedule(updateBossDistance)
+			setBossDistance(self, true, true)
+			self:TLBatchReset()
+			self:UnregisterShortTermEvents()
+			setFallback(self)
+			DBM:Debug("|cffff0000Failed to match encounter timeline events to expected timers, falling back to Blizzard API|r", nil, true, nil, true)
+		end
+	end
+
+	--Note, bar state changing and canceling is handled by core
+	function mod:UNIT_SPELLCAST_START(uId)
+		pending22Caster = uId
+		pending22CasterAt = GetTime()
+	end
+
+	function mod:ENCOUNTER_TIMELINE_EVENT_ADDED(eventInfo)
+		if eventInfo.source ~= 0 then return end
+		local eventID = eventInfo.id
+		local isResend = seenTimelineEventIDs[eventID]
+		seenTimelineEventIDs[eventID] = true
+		local timerExact = eventInfo.duration
+		if not isResend then
+			timelineEventStartTimes[eventID] = {started = GetTime(), duration = timerExact}
+		end
+		local timer = math.floor(timerExact + 0.5)
+		if not badStateDetected then
+			local wasBadStateDetected = badStateDetected
+			timersHeroic(self, timer, timerExact, eventID)
+			if not wasBadStateDetected and badStateDetected then
+				badStateDetectedAt = GetTime()
+				badStateDetectedDuringWipeResend = isResend and DBM:NumRealAlivePlayers() < DBM:GetNumRealGroupMembers() / 2
+			end
+		end
+	end
+
+	function mod:ENCOUNTER_TIMELINE_EVENT_STATE_CHANGED(eventID)
+		local eventState = C_EncounterTimeline.GetEventState(eventID)
+		if not eventID or not eventState then return end
+		local timelineEvent = timelineEventStartTimes[eventID]
+		timelineEventStartTimes[eventID] = nil
+		self:TLBatchUntrack(eventID)
+		-- Toxic Droplets, Venom Coagulation, and the 51.5s Coagulation row can reach their
+		-- scheduled expiry with state 3. Immediate state-3 rows are genuine reset cancellations.
+		local expiredWithCancelState = eventState == 3 and timelineEvent and math.abs((GetTime() - timelineEvent.started) - timelineEvent.duration) <= 1
+		if eventState == 2 or expiredWithCancelState then
+			local eventType, eventCount = self:TLCountFinish(eventID)
+			if not eventType or not eventCount then return end
+			if eventType == "venomcoagulation" then
+				if nearBreath then
+					specWarnVenomCoagulation:Show(eventCount)
+					specWarnVenomCoagulation:Play("bigmob")
+				end
+			elseif eventType == "toxicdroplets" then
+				--This one purposely avoids nearBreath because they can spawn on both sides of room
+				specWarnToxicDroplets:Show(eventCount)
+				specWarnToxicDroplets:Play("helpsoak")
+			elseif eventType == "empoweringslam" then
+				if self:IsTanking("player", "boss1", nil, true) then--Breath
+					specWarnEmpoweringSlam:Show()
+					specWarnEmpoweringSlam:Play("defensive")
+				end
+			elseif eventType == "bloodvenominjection" then
+				if self:IsTanking("player", "boss2", nil, true) then--Blood
+					specWarnBloodvenomInjection:Show()
+					specWarnBloodvenomInjection:Play("defensive")
+				end
+			elseif eventType == "blightedblood" then
+			--	specWarnBlightedBlood:Show(eventCount)
+			--	specWarnBlightedBlood:Play("helpdispel")
+			elseif eventType == "unstablemiasma" then
+				if nearBlood then
+					warnUnstableMiasma:Show(eventCount)
+				end
+			elseif eventType == "shiftingprotovenom" then
+				specWarnShiftingProtovenom:Show(eventCount)
+				specWarnShiftingProtovenom:Play("scatter")
+			elseif eventType == "vitriolicstasis" then
+				warnVitriolicStasis:Show(eventCount)
+			end
+		elseif eventState == 3 then
+			self:TLCountCancel(eventID)
+		end
+	end
+end

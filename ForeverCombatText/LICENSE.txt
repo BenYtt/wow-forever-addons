@@ -1,0 +1,18 @@
+Copyright (c) 2026 Morpster. All rights reserved.
+
+Permission is granted to download, install, use, and inspect Forever Combat Text
+free of charge, and to make personal backup copies. Its source code must remain
+publicly accessible and unobfuscated in authorized distributions.
+
+Morpster authorizes CurseForge/Overwolf and their distribution services to host
+and distribute the files submitted by Morpster under the applicable platform
+terms. This permission does not authorize unrelated parties to republish,
+redistribute, sell, sublicense, or reuse the project's code or artwork.
+
+Publication or distribution of modified versions, and reuse of the project's
+code or artwork in another project, require Morpster's prior permission, except
+where permitted by applicable law. Rights in third-party names, client-provided
+fonts, UI templates, and other game assets are not claimed by this license.
+
+THE PROJECT IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, TO THE EXTENT
+PERMITTED BY APPLICABLE LAW.

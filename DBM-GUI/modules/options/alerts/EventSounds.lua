@@ -1,0 +1,103 @@
+local isRetail = DBM:IsRetail()
+
+local L = DBM_GUI_L
+
+---@class DBMGUI
+local DBM_GUI = DBM_GUI
+
+-- Preview state belongs to the GUI, not to a saved profile or runtime music.
+local musicPreviewPlaying, previousMusicSetting
+
+function DBM_GUI:StopMusicPreview()
+	if not musicPreviewPlaying then return end
+	musicPreviewPlaying = nil
+	StopMusic()
+	if previousMusicSetting then
+		SetCVar("Sound_EnableMusic", previousMusicSetting)
+		previousMusicSetting = nil
+	end
+end
+
+function DBM_GUI:PreviewMusic(value)
+	if value == "Random" or DBM:IsNoneValue(value) then
+		self:StopMusicPreview()
+		return
+	end
+	if not musicPreviewPlaying and tonumber(GetCVar("Sound_EnableMusic")) == 0 then
+		previousMusicSetting = 0
+		SetCVar("Sound_EnableMusic", 1)
+	end
+	PlayMusic(value)
+	musicPreviewPlaying = true
+end
+
+local Sounds = DBM_GUI:MixinSharedMedia3("sound", {
+	{
+		text	= L.NoSound,
+		value	= "None"
+	}
+})
+
+if isRetail then
+	table.insert(Sounds, {
+		text	= "Muradin: Charge",
+		value	= 555967 -- "Sound\\Creature\\MuradinBronzebeard\\IC_Muradin_Saurfang02.ogg"
+	})
+end
+
+local eventSoundsPanel			= DBM_GUI.Cat_Alerts:CreateNewPanel(L.Panel_EventSounds, "option")
+local eventSoundsGeneralArea	= eventSoundsPanel:CreateArea(L.Area_SoundSelection)
+
+local VictorySoundDropdown = eventSoundsGeneralArea:CreateDropdown(L.EventVictorySound, DBM:GetVictorySounds(), "DBM", "EventSoundVictory2", function(value)
+	DBM.Options.EventSoundVictory2 = value
+	if value ~= "Random" then
+		DBM:PlaySoundFile(value)
+	end
+end, 180)
+local isNewDropdown = VictorySoundDropdown.mytype == "dropdown2"
+VictorySoundDropdown:SetPoint("TOPLEFT", eventSoundsGeneralArea.frame, "TOPLEFT", isNewDropdown and 20 or 0, -20)
+VictorySoundDropdown.myheight = isNewDropdown and 30 or 0
+
+local VictorySoundDropdown2 = eventSoundsGeneralArea:CreateDropdown(L.EventWipeSound, DBM:GetDefeatSounds(), "DBM", "EventSoundWipe", function(value)
+	DBM.Options.EventSoundWipe = value
+	if value ~= "Random" then
+		DBM:PlaySoundFile(value)
+	end
+end, 180)
+VictorySoundDropdown2:SetPoint("LEFT", VictorySoundDropdown, "RIGHT", isNewDropdown and 20 or 45, 0)
+
+local useCombined = DBM.Options.EventSoundMusicCombined
+local DungeonMusicDropDown = eventSoundsGeneralArea:CreateDropdown(L.EventDungeonMusic, useCombined and DBM:GetMusic() or DBM:GetDungeonMusic(), "DBM", "EventSoundDungeonBGM", function(value)
+	DBM.Options.EventSoundDungeonBGM = value
+	DBM_GUI:PreviewMusic(value)
+end, 180)
+DungeonMusicDropDown:SetPoint("TOPLEFT", VictorySoundDropdown, "TOPLEFT", 0, -45)
+
+local MusicDropDown = eventSoundsGeneralArea:CreateDropdown(L.EventEngageMusic, useCombined and DBM:GetMusic() or DBM:GetBattleMusic(), "DBM", "EventSoundMusic", function(value)
+	DBM.Options.EventSoundMusic = value
+	DBM_GUI:PreviewMusic(value)
+end, 180)
+MusicDropDown:SetPoint("TOPLEFT", VictorySoundDropdown2, "TOPLEFT", 0, -45)
+MusicDropDown.myheight = 0
+
+local PullTimerSoundDropdown = eventSoundsGeneralArea:CreateDropdown(L.EventEngagePT, Sounds, "DBM", "EventSoundPullTimer", function(value)
+	DBM.Options.EventSoundPullTimer = value
+	DBM:PlaySoundFile(DBM.Options.EventSoundPullTimer)
+end, 180)
+PullTimerSoundDropdown:SetPoint("TOPLEFT", DungeonMusicDropDown, "TOPLEFT", 0, -45)
+
+local EngageSoundDropdown = eventSoundsGeneralArea:CreateDropdown(L.EventEngageSound, Sounds, "DBM", "EventSoundEngage2", function(value)
+	DBM.Options.EventSoundEngage2 = value
+	DBM:PlaySoundFile(DBM.Options.EventSoundEngage2)
+end, 180)
+EngageSoundDropdown:SetPoint("TOPLEFT", MusicDropDown, "TOPLEFT", 0, -45)
+
+local eventSoundsExtrasArea	= eventSoundsPanel:CreateArea(L.Area_EventSoundsExtras)
+eventSoundsExtrasArea:CreateCheckButton(L.EventMusicCombined, true, nil, "EventSoundMusicCombined")
+eventSoundsExtrasArea:CreateCheckButton(L.DisableBuiltInMusic, true, nil, "EventMusicNoBuiltIn")
+
+if isRetail then
+	local eventSoundsFiltersArea= eventSoundsPanel:CreateArea(L.Area_EventSoundsFilters)
+	eventSoundsFiltersArea:CreateCheckButton(L.EventFilterDungMythicMusic, true, nil, "EventDungMusicMythicFilter")
+	eventSoundsFiltersArea:CreateCheckButton(L.EventFilterMythicMusic, true, nil, "EventMusicMythicFilter")
+end

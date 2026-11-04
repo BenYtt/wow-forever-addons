@@ -1,0 +1,133 @@
+# Modified for ForeverAuras; namespace and/or implementation changes through 2026-09-18.
+## Interface: 16001, 120105
+## Title: ForeverAuras Options
+## Author: m33shoq, WeakAuras contributors
+## Version: 1.1.0
+## X-License: GPL-2.0
+## X-Copyright: ForeverAuras changes (C) 2026 ForeverAuras; WeakAuras (C) its contributors
+## IconTexture: Interface\AddOns\ForeverAuras\Media\Textures\foreverauras_logo_64.tga
+## Notes: Options for ForeverAuras
+## Notes-esES: Opciones para ForeverAuras
+## Notes-esMX: Opciones para ForeverAuras
+## Notes-deDE: Optionen für ForeverAuras
+## Notes-ruRU: Опции ForeverAuras
+## Notes-zhTW: ForeverAuras的設定
+## X-Category: Interface Enhancements
+## Globe-Main: ForeverAuras
+## DefaultState: Enabled
+## LoadOnDemand: 1
+## Dependencies: ForeverAuras
+## SavedVariables: ForeverAurasOptionsSaved
+
+embeds.xml
+locales.xml
+
+VersionCheck.lua
+ForAllIndentsAndPurposes.lua
+Theme.lua
+
+RegionOptions\Empty.lua
+RegionOptions\AuraBar.lua
+RegionOptions\Texture.lua
+RegionOptions\Icon.lua
+RegionOptions\Text.lua
+RegionOptions\Group.lua
+RegionOptions\DynamicGroup.lua
+RegionOptions\StopMotion.lua
+RegionOptions\Model.lua
+RegionOptions\ProgressTexture.lua
+
+SubRegionOptions\SubRegionCommon.lua
+SubRegionOptions\Background.lua
+SubRegionOptions\SubText.lua
+SubRegionOptions\Border.lua
+SubRegionOptions\Glow.lua
+SubRegionOptions\Tick.lua
+SubRegionOptions\Model.lua
+SubRegionOptions\StopMotion.lua
+SubRegionOptions\Texture.lua
+SubRegionOptions\CDMDispel.lua
+SubRegionOptions\CDMDispelBorder.lua
+SubRegionOptions\CircularProgressTexture.lua
+SubRegionOptions\LinearProgressTexture.lua
+
+Cache.lua
+IconLibrary.lua
+GameIconNames.lua
+
+TriggerSecretWarnings.lua
+AuraTriggerOptions.lua
+CommonOptions.lua
+GroupOptions.lua
+DisplayOptions.lua
+TriggerOptions.lua
+LoadOptions.lua
+ActionOptions.lua
+AnimationOptions.lua
+InformationOptions.lua
+AuraDisplayOptions.lua
+
+BuffTrigger2.lua
+SecretAuraTriggerOptions.lua
+CooldownViewerOptions.lua
+GenericTrigger.lua
+
+ForeverAurasOptions.lua
+ConditionOptions.lua
+AuthorOptions.lua
+
+Changelog.lua
+
+OptionsFrames\OptionsFrame.lua
+
+# Groups
+OptionsFrames\CodeReview.lua
+OptionsFrames\IconPicker.lua
+OptionsFrames\ImportExport.lua
+OptionsFrames\ModelPicker.lua
+OptionsFrames\TextEditor.lua
+OptionsFrames\TexturePicker.lua
+OptionsFrames\Update.lua
+OptionsFrames\DebugLogFrame.lua
+
+# Misc frames
+OptionsFrames\MoverSizer.lua
+OptionsFrames\FrameChooser.lua
+
+AceGUI-Widgets\AceGUIWidget-ForeverAurasExpand.lua
+AceGUI-Widgets\AceGUIWidget-ForeverAurasExpandSmall.lua
+AceGUI-Widgets\AceGUIWidget-ForeverAurasIcon.lua
+AceGUI-Widgets\AceGUIWidget-ForeverAurasNewHeaderButton.lua
+AceGUI-Widgets\AceGUIWidget-ForeverAurasLoadedHeaderButton.lua
+AceGUI-Widgets\AceGUIWidget-ForeverAurasDisplayButton.lua
+AceGUI-Widgets\AceGUIWidget-ForeverAurasDropDownItemCurrency.lua
+AceGUI-Widgets\AceGUIWidget-ForeverAurasPendingInstallButton.lua
+AceGUI-Widgets\AceGUIWidget-ForeverAurasPendingUpdateButton.lua
+AceGUI-Widgets\AceGUIWidget-ForeverAurasTextureButton.lua
+AceGUI-Widgets\AceGUIWidget-ForeverAurasIconButton.lua
+AceGUI-Widgets\AceGUIWidget-ForeverAurasMultiLineEditBox.lua
+AceGUI-Widgets\AceGUIWidget-ForeverAurasMultiLineEditBoxWithEnter.lua
+AceGUI-Widgets\AceGUIWidget-ForeverAurasNewButton.lua
+AceGUI-Widgets\AceGUIWidget-ForeverAurasImportButton.lua
+AceGUI-Widgets\AceGUIWidget-ForeverAurasToolbarButton.lua
+AceGUI-Widgets\AceGUIWidget-ForeverAurasTwoColumnDropDown.lua
+AceGUI-Widgets\AceGUIWidget-ForeverAurasSnippetButton.lua
+AceGUI-Widgets\AceGUIWidget-ForeverAurasAnchorButtons.lua
+AceGUI-Widgets\AceGUIContainer-ForeverAurasTreeGroup.lua
+AceGUI-Widgets\AceGUIContainer-ForeverAurasInlineGroup.lua
+AceGUI-Widgets\AceGUIContainer-ForeverAurasTabGroup.lua
+AceGUI-Widgets\AceGUIWidget-ForeverAurasExpandAnchor.lua
+AceGUI-Widgets\AceGUIWidget-ForeverAurasSpacer.lua
+AceGUI-Widgets\AceGuiWidget-ForeverAurasProgressBar.lua
+AceGUI-Widgets\AceGUIWidget-ForeverAurasSpinBox.lua
+AceGUI-Widgets\AceGUIWidget-ForeverAurasMiniTalent.lua
+AceGUI-Widgets\AceGUIWidget-ForeverAurasTriCheckBox.lua
+AceGUI-Widgets\AceGUIWidget-ForeverAurasScrollArea.lua
+AceGUI-Widgets\AceGUIWidget-ForeverAurasInput.lua
+AceGUI-Widgets\AceGUIWidget-ForeverAurasInputFocus.lua
+AceGUI-Widgets\AceGUIWidget-ForeverAurasInputWithIndentation.lua
+AceGUI-Widgets\AceGuiWidget-ForeverAurasMediaSound.lua
+AceGUI-Widgets\ForeverAurasStatusbarAtlasWidget.lua
+
+ColorPalette.lua
+AceGUI-Widgets\AceGUIWidget-ForeverAurasColorPicker.lua

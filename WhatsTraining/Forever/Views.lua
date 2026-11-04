@@ -1,0 +1,327 @@
+local _, wt = ...
+local Forever = wt.Forever
+local ROW_HEIGHT, COLS, CELL, GROUP_HEADER, GROUP_GAP =
+    Forever.ROW_HEIGHT, Forever.COLS, Forever.CELL, Forever.GROUP_HEADER, Forever.GROUP_GAP
+local WEAPON_HEADING_HEIGHT, TRAINER_ROW_HEIGHT, SKILL_HEIGHT, CONTENT_RISE =
+    Forever.WEAPON_HEADING_HEIGHT, Forever.TRAINER_ROW_HEIGHT, Forever.SKILL_HEIGHT, Forever.CONTENT_RISE
+local label, createCityIcon, setCityIcon =
+    Forever.label, Forever.createCityIcon, Forever.setCityIcon
+local buildGroups, wholeBlocks, ledgerSpan, paginateLedger, paginateLevels =
+    Forever.buildGroups, Forever.wholeBlocks, Forever.ledgerSpan, Forever.paginateLedger, Forever.paginateLevels
+
+local function groupTitle(group)
+    local key = group.category.key
+    if key == wt.AVAILABLE_KEY then return wt.L.AVAILABLE_HEADER, unpack(wt.Theme.available) end
+    if key == wt.NEXTLEVEL_KEY then
+        return string.format(wt.L.LEVEL_FORMAT, group.level) .. " • " .. wt.L.NEXTLEVEL_HEADER, unpack(wt.Theme.nextLevel)
+    end
+    if key == wt.NOTLEVEL_KEY then
+        return string.format(wt.L.LEVEL_FORMAT, group.level), unpack(wt.Theme.groupUnavailable)
+    end
+    return group.category.name or group.category.formattedName, unpack(wt.Theme.groupUnavailable)
+end
+
+-- Pet abilities and tomes share one section, so their level carries the status: green now, blue soon, red later.
+local function levelColor(category, spell)
+    if category.key == wt.PET_KEY then
+        if spell.level <= wt.playerLevel then return unpack(wt.Theme.available) end
+        if spell.level <= wt.playerLevel + 2 then return unpack(wt.Theme.nextLevel) end
+        return unpack(wt.Theme.levelUnavailable)
+    end
+    if category.key == wt.NOTLEVEL_KEY or category.key == wt.WEAPON_NOTLEVEL_KEY then
+        return unpack(wt.Theme.levelUnavailable)
+    end
+    return unpack(wt.Theme.body)
+end
+
+local function levelText(category, spell)
+    local r, g, b = levelColor(category, spell)
+    return string.format("|cff%02x%02x%02x%s|r", r * 255 + 0.5, g * 255 + 0.5, b * 255 + 0.5, spell.formattedLevel)
+end
+
+-- lays out blocks ({group, first, last} slices of a group's spells) and returns the content height
+local function renderLevels(page, blocks)
+    local levels, y = page.levels, 0
+    local columns = page.numColumns or COLS
+    local width = (levels:GetWidth() - 32) / columns
+    levels:Show()
+    for i, block in ipairs(blocks) do
+        local group, first, last = block.group, block.first, block.last
+        local header = page.groupHeaders:Acquire()
+        header.spell = setmetatable({cost = group.cost, level = group.level, spells = group.spells},
+            {__index = group.category})
+        header.navigationHeader, header.navigationChildren = header, {}
+        local total = #group.spells
+        local rows = math.ceil((last - first + 1) / columns)
+        header:SetPoint("TOPLEFT", levels, "TOPLEFT", 0, -y)
+        header:SetPoint("TOPRIGHT", levels, "TOPRIGHT", 0, -y)
+        header.rule:SetShown(i > 1)
+        local title, r, g, b = groupTitle(group)
+        header.title:SetText(first > 1 and title .. " " .. wt.L.CONTINUED or title)
+        header.title:SetTextColor(r, g, b)
+        local count
+        if first == 1 and last == total then
+            count = string.format(total == 1 and wt.L.LEVELS_SPELL_COUNT or wt.L.LEVELS_SPELLS_COUNT, total)
+        elseif first == last then
+            count = string.format(wt.L.LEVELS_SPLIT_ONE, first, total)
+        else
+            count = string.format(wt.L.LEVELS_SPLIT_COUNT, first, last, total)
+        end
+        header.count:SetText(" • " .. count)
+        y = y + GROUP_HEADER
+        for index = first, last do
+            local spell = group.spells[index]
+            local cell = page.cells:Acquire()
+            local offset = index - first
+            cell.spell, cell.category = spell, group.category
+            cell.navigationHeader = header
+            tinsert(header.navigationChildren, cell)
+            cell:SetPoint("TOPLEFT", levels, "TOPLEFT", 16 + (offset % columns) * width,
+                -y - math.floor(offset / columns) * CELL)
+            cell.icon:SetTexture(spell.useAltIcon and spell.altIcon or spell.icon)
+            cell.badge:SetShown(spell.quest ~= nil)
+            cell.name:SetText(spell.name)
+            local subText = spell.subText or ""
+            if not group.level and not group.category.hideLevel then
+                subText = (subText ~= "" and subText .. " • " or "") .. levelText(group.category, spell)
+            end
+            cell.rank:SetText(subText)
+        end
+        y = y + rows * CELL + GROUP_GAP
+    end
+    levels:SetHeight(math.max(1, y))
+    return y
+end
+
+local function showHeading(page, item, y, color, fromAlpha, toAlpha)
+    local heading = page.headings:Acquire()
+    heading.spell = item
+    heading:SetPoint("TOPLEFT", page.content, "TOPLEFT", 0, -y)
+    local capAlpha = fromAlpha + (toAlpha - fromAlpha) * (8 / 1024)
+    heading.bandCap:SetGradient("HORIZONTAL", CreateColor(color[1], color[2], color[3], fromAlpha),
+        CreateColor(color[1], color[2], color[3], capAlpha))
+    heading.band:SetGradient("HORIZONTAL", CreateColor(color[1], color[2], color[3], capAlpha),
+        CreateColor(color[1], color[2], color[3], toAlpha))
+    heading.heading:SetTextColor(color[4], color[5], color[6])
+    heading.heading:SetText(item.label or item.name or item.formattedName)
+    return heading
+end
+
+local function showSkill(row, skill)
+    row.spell = skill
+    row.icon:SetTexture(skill.icon)
+    row.name:SetText(skill.name)
+    local status, role = wt.weaponStatus(skill)
+    row.rank:SetText(status)
+    row.rank:SetTextColor(unpack(wt.Theme[role]))
+end
+
+local function showTrainer(pool, page, trainer, y, block)
+    local row = pool:Acquire()
+    row.spell, row.weaponRow = trainer, block
+    -- Trainer names have their own hover targets above the full skill block.
+    row:SetFrameLevel(page.content:GetFrameLevel() + 2)
+    row:SetPoint("TOPLEFT", page.content, "TOPLEFT", 0, -y)
+    row.heading:SetText(trainer.name)
+    return row
+end
+
+-- A render draws one view into a page and returns the content height.
+local function renderLedger(page, items)
+    local y, heading, count = 0, nil, 0
+    for i, item in ipairs(items) do
+        local gap, height = ledgerSpan(item, i == 1)
+        y = y + gap
+        if item.isHeader then
+            heading, count = showHeading(page, item, y,
+                wt.Theme.sectionColors[item.key] or wt.Theme.otherSection, 0.75, 0), 0
+        else
+            local category = heading.spell
+            count = count + 1
+            -- paged halves arrive with their header text
+            if not category.label then
+                heading.heading:SetText(string.format("%s • %d", category.name or category.formattedName, count))
+            end
+            local row = page.rows:Acquire()
+            row.spell, row.category = item, category
+            row:SetPoint("TOPLEFT", page.content, "TOPLEFT", 0, -y)
+            row.icon:SetTexture(item.useAltIcon and item.altIcon or item.icon)
+            row.badge:SetShown(item.quest ~= nil)
+            row.name:SetText(item.name)
+            row.rank:SetText(item.subText or "")
+            row.level:SetText(item.hideLevel and "" or item.formattedLevel)
+            row.level:SetTextColor(levelColor(category, item))
+            row.separator:SetShown(items[i + 1] ~= nil and not items[i + 1].isHeader)
+        end
+        y = y + height
+    end
+    return y
+end
+
+local function renderList(page, items)
+    local y, category, hasSkills = 0, nil, false
+    for i, item in ipairs(items) do
+        local gap, height = ledgerSpan(item, i == 1, 32)
+        y = y + gap
+        if item.isHeader then
+            category = item
+            showHeading(page, item, y, wt.Theme.sectionColors[item.key] or wt.Theme.otherSection, 0.75, 0)
+        else
+            hasSkills = true
+            local row = page.listRows:Acquire()
+            row.spell, row.category = item, category
+            row:SetPoint("TOPLEFT", page.content, "TOPLEFT", 0, -y)
+            row.icon:SetTexture(item.useAltIcon and item.altIcon or item.icon)
+            row.name:SetText(item.name)
+            if category.key == wt.WEAPON_KNOWN_KEY then
+                row.name:SetTextColor(unpack(wt.Theme.dim))
+            else
+                row.name:SetTextColor(unpack(wt.Theme.body))
+            end
+            row.level:SetShown(not item.hideLevel)
+            row.level:SetText(item.formattedLevel)
+            row.level:SetTextColor(levelColor(category, item))
+            row.separator:SetShown(items[i + 1] ~= nil and not items[i + 1].isHeader)
+            for index, city in ipairs(wt.weaponSkeleton) do
+                local icon = row.cityIcons[index]
+                if not icon then
+                    icon = createCityIcon(row)
+                    row.cityIcons[index] = icon
+                end
+                icon:SetPoint("TOPLEFT", page.cityX + (index - 1) * 34, -4)
+                local available = false
+                for _, zone in ipairs(item.trainerZones or {}) do
+                    if zone.id == city.id then available = true; break end
+                end
+                setCityIcon(icon, city, item, available)
+            end
+        end
+        y = y + height
+    end
+    if hasSkills then
+        local legend = page.cityLegend
+        legend:Show()
+        legend:SetPoint("TOPLEFT", page.content, "TOPLEFT", 8, -y - 12)
+        local entryWidth = (page.content:GetWidth() - 16) / #wt.weaponSkeleton
+        for index, city in ipairs(wt.weaponSkeleton) do
+            local entry = legend.entries[index]
+            if not entry then
+                entry = createCityIcon(legend)
+                entry.name = label(entry, "", "SystemFont_Med3", 32, -5)
+                entry.name:SetWordWrap(false)
+                legend.entries[index] = entry
+            end
+            entry:SetPoint("TOPLEFT", (index - 1) * entryWidth, 0)
+            entry.name:SetWidth(entryWidth - 36)
+            entry.name:SetText(city.name)
+            setCityIcon(entry, city, nil, true)
+        end
+        y = y + 48
+    end
+    return y
+end
+
+local function renderByCity(page, items)
+    local columnWidth = (page.content:GetWidth() - 24) / 2
+    local i, y, trainer = 1, 0, nil
+    while i <= #items do
+        local item = items[i]
+        if item.npc then
+            trainer = showTrainer(page.cityTrainers, page, item, y)
+            trainer.navigationHeader = trainer
+            trainer.navigationChildren = {}
+            y = y + TRAINER_ROW_HEIGHT
+            i = i + 1
+        elseif item.isHeader then
+            trainer = nil
+            if i > 1 then y = y + 10 end
+            showHeading(page, item, y, wt.Theme.weaponGroup, 0.9, 0)
+            y = y + ROW_HEIGHT
+            i = i + 1
+        else
+            -- a trainer's skills fill the left column top to bottom, then the right
+            local last = i
+            while items[last + 1] and not items[last + 1].isHeader do last = last + 1 end
+            local rowsPerColumn = math.ceil((last - i + 1) / 2)
+            for index = i, last do
+                local tile, offset = page.tiles:Acquire(), index - i
+                tile.navigationHeader = trainer
+                if trainer then trainer.navigationChildren[#trainer.navigationChildren + 1] = tile end
+                tile:SetPoint("TOPLEFT", page.content, "TOPLEFT", 16 + math.floor(offset / rowsPerColumn) * columnWidth,
+                    -y - (offset % rowsPerColumn) * SKILL_HEIGHT)
+                showSkill(tile, items[index])
+            end
+            y = y + rowsPerColumn * SKILL_HEIGHT
+            i = last + 1
+        end
+    end
+    return y
+end
+
+local function renderByWeapon(page, items)
+    local y, block = 0, nil
+    for i, item in ipairs(items) do
+        if item.npc then
+            local trainer = showTrainer(page.skillTrainers, page, item, y, block)
+            trainer.navigationHeader = block
+            if block then tinsert(block.navigationChildren, trainer) end
+            y = y + TRAINER_ROW_HEIGHT
+        elseif item.isHeader then
+            if i > 1 then y = y + 10 end
+            showHeading(page, item, y, wt.Theme.weaponGroup, 0.9, 0.25)
+            y = y + ROW_HEIGHT + 4
+        else
+            if i > 1 then y = y + 6 end
+            local trainers = 0
+            while items[i + trainers + 1] and items[i + trainers + 1].npc do trainers = trainers + 1 end
+            local height = trainers > 0 and WEAPON_HEADING_HEIGHT or 40
+            block = page.blocks:Acquire()
+            block.navigationHeader, block.navigationChildren = block, {}
+            block:SetPoint("TOPLEFT", page.content, "TOPLEFT", 0, -y)
+            block:SetHeight(height + trainers * TRAINER_ROW_HEIGHT)
+            showSkill(block, item)
+            y = y + height
+        end
+    end
+    return y
+end
+
+-- One entry per display style. top: where the scroll area starts. reserve: room a paged half keeps
+-- free for the "Continues on ..." note. Items: what the view shows when it isn't paged.
+local views = {
+    ledger = {top = -84, footer = wt.L.LEDGER_HINT, empty = wt.L.LEDGER_EMPTY, Render = renderLedger,
+        Items = function() return wt.spellListData end,
+        Paginate = function(height) return paginateLedger(wt.spellListData, height) end},
+    levels = {top = -72, reserve = 12, footer = wt.L.LEDGER_HINT, empty = wt.L.LEDGER_EMPTY,
+        Render = renderLevels,
+        Items = function() return wholeBlocks(buildGroups(wt.spellListData)) end,
+        Paginate = function(height, columns) return paginateLevels(buildGroups(wt.spellListData), height, columns) end},
+    zone = {top = -84, footer = wt.L.LEDGER_WEAPON_HINT, empty = wt.L.LEDGER_WEAPON_EMPTY,
+        Render = renderByCity, Items = function() return wt.weaponGroupedData end},
+    weaponskill = {top = -84, footer = wt.L.LEDGER_WEAPON_HINT, empty = wt.L.LEDGER_WEAPON_EMPTY,
+        Render = renderByWeapon, Items = function() return wt.weaponSkillGroupedData end},
+    list = {top = -84, footer = wt.L.LEDGER_WEAPON_LIST_HINT, empty = wt.L.LEDGER_WEAPON_EMPTY,
+        Render = renderList, Items = function() return wt.weaponListData end},
+}
+
+-- items: the view's whole list, or one paged half
+local function updatePage(page, view, items, paged)
+    for _, chrome in ipairs({page.cityLegend, page.levels}) do chrome:Hide() end
+    for _, pool in ipairs(page.pools) do pool:ReleaseAll() end
+    local scroll = page.scrollFrame
+    scroll:SetPoint("TOPLEFT", page, "TOPLEFT", 0, view.top + CONTENT_RISE)
+    scroll.ScrollBar:SetShown(not paged)
+    scroll:EnableMouseWheel(not paged)
+    page.footer:SetText(view.footer)
+    -- only Levels can end up empty from a search
+    page.empty:SetText(wt.filter ~= "" and wt.L.SEARCH_NO_RESULTS or view.empty)
+    page.empty:SetShown(#items == 0)
+    local height = view.Render(page, items)
+    page.content:SetHeight(math.max(1, height))
+    scroll:UpdateScrollChildRect()
+    scroll:SetVerticalScroll(math.min(scroll:GetVerticalScroll(), math.max(0, height - scroll:GetHeight())))
+end
+
+Forever.levelColor = levelColor
+Forever.views = views
+Forever.updatePage = updatePage

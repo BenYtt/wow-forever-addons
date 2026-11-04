@@ -1,0 +1,75 @@
+## Interface: 16001
+## Title: SkillUp Forever
+## Notes: Required skill, colour thresholds and skill-up chance for every recipe in the Professions window.
+## Notes-deDE: Benötigte Fertigkeit, Farbschwellen und Chance auf Fertigkeitspunkt für jedes Rezept im Berufsfenster.
+## Notes-esES: Habilidad requerida, umbrales de color y probabilidad de subida para cada receta en la ventana de profesiones.
+## Notes-esMX: Habilidad requerida, umbrales de color y probabilidad de subida para cada receta en la ventana de profesiones.
+## Notes-frFR: Compétence requise, seuils de couleur et chance de gain pour chaque recette dans la fenêtre des métiers.
+## Notes-koKR: 전문 기술 창의 모든 제조법에 요구 숙련도, 색상 구간, 숙련도 상승 확률을 표시합니다.
+## Notes-ptBR: Perícia necessária, limiares de cor e chance de ponto de perícia para cada receita na janela de profissões.
+## Notes-ruRU: Требуемый навык, цветовые пороги и шанс повышения навыка для каждого рецепта в окне профессий.
+## Notes-zhCN: 在专业窗口中为每个配方显示所需技能、颜色分界点和技能提升几率。
+## Notes-zhTW: 在專業技能視窗中為每個配方顯示所需技能、顏色分界點和技能提升機率。
+## Author: cjber
+## Version: v1.0.9
+## Category: Professions
+## X-License: GPL-3.0-or-later
+## X-Website: https://github.com/cjber/skillup-forever
+## X-Curse-Project-ID: 1705762
+## X-Wago-ID: aNerqn62
+## SavedVariables: SkillUpForeverDB
+## OptionalDeps: Auctionator, TomTom, Syndicator, ShortestPathForever, QuestieDB, Questie, AtlasLootClassic
+## IconTexture: Interface\AddOns\SkillUpForever\media\Icon
+## AddonCompartmentFunc: SkillUpForever_OnAddonCompartmentClick
+
+Locales\enUS.lua
+Locales\deDE.lua
+Locales\esES.lua
+Locales\esMX.lua
+Locales\frFR.lua
+Locales\koKR.lua
+Locales\ptBR.lua
+Locales\ruRU.lua
+Locales\zhCN.lua
+Locales\zhTW.lua
+Data\Thresholds.lua
+Data\Vendor.lua
+Data\Recipes.lua
+Data\Trainer.lua
+Data\Sources.lua
+UI\ForeverFamily.lua
+Core\SafeCall.lua
+Core\Model.lua
+Core\Changes.lua
+Core\Live.lua
+Core\Plan.lua
+Core\Gear.lua
+Core\Core.lua
+Core\PeerStats.lua
+Core\Stats.lua
+Integrations\Questie.lua
+Integrations\AtlasLoot.lua
+Integrations\Catalogue.lua
+Integrations\Prices.lua
+UI\Art.lua
+UI\Report.lua
+UI\Settings.lua
+UI\SettingsPage.lua
+UI\Tooltip.lua
+UI\DetailsBar.lua
+UI\RecipeList.lua
+Integrations\Sources.lua
+UI\List.lua
+UI\Route.lua
+UI\Gear.lua
+UI\Shopping.xml
+UI\TrackerQuestie.lua
+UI\TrackerLock.lua
+UI\TrackerOrder.lua
+UI\TrackerHost.lua
+UI\Shopping.lua
+UI\ShoppingList.lua
+UI\AuctionSearch.lua
+Integrations\Trainer.lua
+Core\API.lua
+Core\Report.lua

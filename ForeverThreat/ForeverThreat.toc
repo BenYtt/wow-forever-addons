@@ -1,0 +1,10 @@
+## Interface: 16001, 11507, 11508, 11509
+## Title: Forever Threat
+## Notes: A threat meter for your party or raid, laid out like the built-in damage meter. Minimap button shows and hides it.
+## Author: Andres
+## Version: 1.24
+## SavedVariables: ForeverThreatDB
+## SavedVariablesPerCharacter: ForeverThreatCharDB
+## X-Curse-Project-ID: 1703347
+
+ForeverThreat.lua

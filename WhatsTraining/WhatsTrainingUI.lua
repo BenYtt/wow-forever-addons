@@ -1,0 +1,629 @@
+-- Compact list shared by the Era/TBC spellbook and the floating /wt window.
+
+local _, wt = ...
+
+local BOOKTYPE_SPELL = BOOKTYPE_SPELL
+
+local MAX_ROWS = 22
+local ROW_HEIGHT = 14
+local INDENT_STEP = ROW_HEIGHT + 4
+local HIGHLIGHT_TEXTURE_FILEID = GetFileIDFromPath(
+                                     "Interface\\AddOns\\WhatsTraining\\highlight")
+local LEFT_BG_TEXTURE_FILEID = GetFileIDFromPath(
+                                   "Interface\\AddOns\\WhatsTraining\\left")
+local RIGHT_BG_TEXTURE_FILEID = GetFileIDFromPath(
+                                    "Interface\\AddOns\\WhatsTraining\\right")
+local TAB_TEXTURE_FILEID = GetFileIDFromPath(
+                               "Interface\\Icons\\INV_Misc_QuestionMark")
+
+local tooltip = CreateFrame("GameTooltip", "WhatsTrainingTooltip", UIParent,
+                            "GameTooltipTemplate")
+tooltip:HookScript("OnHide", wt.HideRankComparison)
+
+local function setRowSpell(row, spell)
+    if spell == nil then
+        row.currentSpell = nil
+        row:Hide()
+        return
+    elseif spell.isHeader then
+        row.spell:Hide()
+        row.header:Show()
+        row:SetID(0)
+        row.highlight:SetTexture(spell.npc and HIGHLIGHT_TEXTURE_FILEID or nil)
+        if spell.indent ~= nil then
+            row.header:SetText(spell.name)
+            row.header:ClearAllPoints()
+            row.header:SetPoint("LEFT", row, "LEFT", spell.indent * INDENT_STEP, 0)
+            row.header:SetPoint("RIGHT", row, "RIGHT")
+            row.header:SetPoint("TOP", row)
+            row.header:SetPoint("BOTTOM", row)
+            row.header:SetJustifyH("LEFT")
+            if spell.indent == 1 then
+                row.header:SetTextColor(LIGHTYELLOW_FONT_COLOR.r, LIGHTYELLOW_FONT_COLOR.g, LIGHTYELLOW_FONT_COLOR.b)
+            else
+                row.header:SetTextColor(NORMAL_FONT_COLOR.r, NORMAL_FONT_COLOR.g, NORMAL_FONT_COLOR.b)
+            end
+        else
+            -- Reset centered/full-width in case this reused row last held a grouped header.
+            row.header:SetText(spell.formattedName)
+            row.header:ClearAllPoints()
+            row.header:SetAllPoints()
+            row.header:SetJustifyH("CENTER")
+            row.header:SetTextColor(1, 1, 1)
+        end
+    else
+        local rowSpell = row.spell
+        row.header:Hide()
+        row.isHeader = false
+        row.highlight:SetTexture(HIGHLIGHT_TEXTURE_FILEID)
+        rowSpell:Show()
+        local indentPx = (spell.indent or 0) * INDENT_STEP
+        rowSpell.icon:ClearAllPoints()
+        rowSpell.icon:SetPoint("TOPLEFT", rowSpell, "TOPLEFT", indentPx, 0)
+        rowSpell.icon:SetPoint("BOTTOMLEFT", rowSpell, "BOTTOMLEFT", indentPx, 0)
+        rowSpell.label:ClearAllPoints()
+        rowSpell.label:SetPoint("TOPLEFT", rowSpell, "TOPLEFT", indentPx + ROW_HEIGHT + 4, 0)
+        rowSpell.label:SetPoint("BOTTOM", rowSpell)
+        rowSpell.label:SetText(spell.quest and wt.QUEST_MARKER .. spell.name or spell.name)
+        if spell.isKnown then
+            rowSpell.label:SetTextColor(GRAY_FONT_COLOR.r, GRAY_FONT_COLOR.g, GRAY_FONT_COLOR.b)
+        else
+            rowSpell.label:SetTextColor(NORMAL_FONT_COLOR.r, NORMAL_FONT_COLOR.g, NORMAL_FONT_COLOR.b)
+        end
+        rowSpell.subLabel:SetText(spell.formattedSubText)
+        if not spell.hideLevel then
+            rowSpell.level:Show()
+            rowSpell.level:SetText(spell.formattedLevel)
+            local color = spell.levelColor
+            rowSpell.level:SetTextColor(color.r, color.g, color.b)
+        else
+            rowSpell.level:Hide()
+            rowSpell.level:SetText("")
+        end
+        row:SetID(spell.itemId or spell.id)
+        rowSpell.icon:SetTexture(spell.useAltIcon and spell.altIcon or spell.icon)
+    end
+    if not spell.isHeader and spell.indent == nil and spell.trainerZones and #spell.trainerZones > 0 then
+        local lastFrame = row
+        local point = "TOPRIGHT"
+        local relativePoint = "TOPRIGHT"
+        local xOffset = -4
+
+        local n = #spell.trainerZones
+        for j = 1, n do
+            local zoneData = spell.trainerZones[n - j + 1]  -- reverse: leftmost icon = first in array
+            local f = row.zoneIcons[j]
+            if f then
+                f:ClearAllPoints()
+                f:SetPoint(point, lastFrame, relativePoint, xOffset, 0)
+                f.icon:SetTexture(zoneData.icon)
+                f.zoneId = zoneData.id
+                f:Show()
+                lastFrame = f
+                point = "RIGHT"
+                relativePoint = "LEFT"
+                xOffset = -2
+            end
+        end
+        for j = #spell.trainerZones + 1, wt.NumCityIcons do
+            row.zoneIcons[j]:Hide()
+        end
+
+        row.spell.level:ClearAllPoints()
+        row.spell.level:SetPoint("RIGHT", lastFrame, "LEFT", -2, 0)
+        row.spell.level:SetPoint("TOP", row)
+        row.spell.level:SetPoint("BOTTOM", row)
+    else
+        if row.zoneIcons then
+            for _, f in ipairs(row.zoneIcons) do f:Hide() end
+        end
+        if not spell.isHeader then
+            row.spell.level:ClearAllPoints()
+            row.spell.level:SetPoint("TOPRIGHT", row.spell, -4, 0)
+            row.spell.level:SetPoint("BOTTOM", row.spell)
+        end
+    end
+
+    row.currentSpell = spell
+    if (tooltip:IsOwned(row)) then wt.SetTooltip(tooltip, spell, wt.ClassicPalette) end
+    row:Show()
+end
+
+-- When holding down left mouse on the slider knob, it will keep firing update even though
+-- the offset hasn't changed so this will help throttle that
+local NO_WEAPONS_ROW = { formattedName = wt.L.LEDGER_WEAPON_EMPTY, isHeader = true, cost = 0 }
+local function update(frame, forceUpdate)
+    frame.noticeButton:SetShown(not wt.showingWeaponSkills and wt.needsBeastTraining())
+    local scrollBar = frame.scrollBar
+    if frame.filter ~= wt.filter or frame.data ~= wt.data then
+        frame.filter, frame.data = wt.filter, wt.data
+        scrollBar.offset = 0
+        scrollBar:SetVerticalScroll(0)
+        scrollBar.ScrollBar:SetValue(0)
+    end
+    local offset = FauxScrollFrame_GetOffset(scrollBar)
+    if offset == frame.lastOffset and not forceUpdate then return end
+    for i, row in ipairs(frame.rows) do
+        local spellIndex = i + offset
+        local spell = wt.data[spellIndex]
+        setRowSpell(row, spell)
+    end
+    -- same header row the search injects for "No results found"
+    if wt.showingWeaponSkills and #wt.data == 0 then setRowSpell(frame.rows[1], NO_WEAPONS_ROW) end
+    FauxScrollFrame_Update(frame.scrollBar, #wt.data, frame.maxRows or MAX_ROWS,
+                           frame.scrollStep or ROW_HEIGHT, nil, nil, nil, nil, nil, nil, true)
+    frame.lastOffset = offset
+end
+local function updateToggleIcon(frame)
+    frame.weaponSkillToggleButton:SetShown(not WT_HideWeaponSkillSwitcher or wt.showingWeaponSkills)
+    local icon
+    if wt.showingWeaponSkills then
+        icon = "Interface\\Icons\\INV_Misc_Book_09"
+    else
+        if wt.currentClass == "HUNTER" then
+            icon = GetInventoryItemTexture("player", 18) -- Ranged
+        end
+        if not icon then
+            icon = GetInventoryItemTexture("player", 16) -- Main Hand
+        end
+        if not icon then
+            icon = "Interface\\Icons\\INV_Weapon_ShortBlade_04" -- Dagger fallback
+        end
+    end
+    frame.weaponSkillToggleButton:SetIcon(icon)
+end
+
+local function updateGroupingButton(frame)
+    if wt.showingWeaponSkills then
+        frame.groupingButton:Show()
+    else
+        frame.groupingButton:Hide()
+        frame.groupingPopup:Hide()
+    end
+end
+
+local function createWeaponSkillsButton()
+    local button = CreateFrame("Button", "WhatsTrainingSkillsButton", SkillFrame, "SquareIconButtonTemplate")
+    button:SetSize(18, 18)
+    button.Icon:SetSize(12, 12)
+    button:SetIcon(TAB_TEXTURE_FILEID)
+    button:SetScript("OnClick", function()
+        if InCombatLockdown() then
+            print(wt.L.BROKER_OPEN_IN_COMBAT)
+            return
+        end
+        PlaySound(SOUNDKIT.U_CHAT_SCROLL_BUTTON)
+        wt.Open(true)
+    end)
+    button:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        GameTooltip:SetText(wt.L.TAB_TEXT)
+        GameTooltip:AddLine(wt.L.SHOW_WEAPONS, 1, 1, 1)
+        GameTooltip:Show()
+    end)
+    local function hideTooltip(self)
+        if GameTooltip:IsOwned(self) then GameTooltip:Hide() end
+    end
+    button:SetScript("OnLeave", hideTooltip)
+    button:SetScript("OnHide", hideTooltip)
+
+    local function updateButton()
+        for i = 1, SKILLS_TO_DISPLAY do
+            local header = _G["SkillTypeLabel" .. i]
+            if header:IsShown() and header:GetText() == wt.L.WEAPON_SKILLS_HEADER then
+                button:SetParent(header)
+                button:ClearAllPoints()
+                button:SetPoint("LEFT", header:GetFontString(), "RIGHT", 4, 0)
+                button:Show()
+                return
+            end
+        end
+        button:Hide()
+    end
+    hooksecurefunc("SkillFrame_UpdateSkills", updateButton)
+    updateButton()
+end
+
+local function attachClassicSpellBook(mainFrame)
+    local SKILL_LINE_TAB = MAX_SKILLLINE_TABS - 1
+    -- Fix for Season of Discovery's Shaman 'Way of the Earth' rune
+    -- When this rune is engraved, it constantly causes a `SPELLS_CHANGED` event
+    -- That event will keep switching the tab back to the first non-general tab when fired
+    local deferredPriorTabSelection = SpellBookFrame.selectedSkillLine
+    SpellBookFrame:HookScript("OnEvent", function(_, event)
+        if event == "SPELLS_CHANGED"
+            and deferredPriorTabSelection == SKILL_LINE_TAB
+            and SpellBookFrame.selectedSkillLine ~= SKILL_LINE_TAB
+        then
+            local inCombat = InCombatLockdown()
+            if not inCombat and SpellBookFrame:IsVisible() then
+                -- out of combat can directly update the spell book
+                SpellBookFrame.selectedSkillLine = SKILL_LINE_TAB
+                SpellBookFrame:Update()
+            elseif inCombat and SpellBookFrame:IsVisible() then
+                -- in combat manually update the tab selection, then update the selected tab variable in the next frame
+                for i = 1, MAX_SKILLLINE_TABS do
+                    _G["SpellBookSkillLineTab" .. i]:SetChecked(i == SKILL_LINE_TAB)
+                end
+                -- the SpellBookFrame code will try to disable the actual buttons if the selected
+                -- skill line is out of range. the SpellButton..n buttons are protected in combat,
+                -- and setting this in the same frame will cause an lua error
+                RunNextFrame(function() SpellBookFrame.selectedSkillLine = SKILL_LINE_TAB end)
+                mainFrame:Show()
+            end
+        end
+    end)
+    local skillLineTab = _G["SpellBookSkillLineTab" .. SKILL_LINE_TAB]
+    hooksecurefunc(SpellBookFrame, "UpdateSkillLineTabs", function()
+        skillLineTab:SetNormalTexture(TAB_TEXTURE_FILEID)
+        skillLineTab.tooltip = wt.L.TAB_TEXT
+        skillLineTab:Show()
+        if SpellBookFrame.selectedSkillLine == SKILL_LINE_TAB then
+            skillLineTab:SetChecked(true)
+            mainFrame:Show()
+            ShowAllSpellRanksCheckbox:Hide()
+        else
+            skillLineTab:SetChecked(false)
+            mainFrame:Hide()
+            if wt.currentClass ~= "ROGUE" and wt.currentClass ~= "WARRIOR" then
+                ShowAllSpellRanksCheckbox:Show()
+            end
+        end
+    end)
+    hooksecurefunc(SpellBookFrame, "Update", function()
+        if SpellBookFrame.bookType ~= BOOKTYPE_SPELL then
+            mainFrame:Hide()
+        elseif SpellBookFrame.selectedSkillLine == SKILL_LINE_TAB then
+            mainFrame:Show()
+        end
+        RunNextFrame(function()
+            deferredPriorTabSelection = SpellBookFrame.selectedSkillLine
+        end)
+    end)
+end
+
+function wt.CreateCompactFrame(mainFrame)
+    local search = CreateFrame("EditBox", "$parentSearchBox", mainFrame, "SearchBoxTemplate")
+    mainFrame.searchBox = search
+    search:SetWidth(124)
+    search:SetHeight(32)
+    search:SetPoint("TOPLEFT", mainFrame, "TOPLEFT", 81, -34)
+    search:SetScript("OnTextChanged", function (self)
+        SearchBoxTemplate_OnTextChanged(self)
+        local oldFilter = wt.filter
+        wt.filter = strlower(self:GetText())
+        if wt.filter ~= oldFilter then wt:ApplyFilter() end
+    end)
+    search:HookScript("OnHide", function(self) self:ClearFocus() end)
+
+    local toggleButton = CreateFrame("Button", "$parentWeaponSkillToggle", mainFrame, "SquareIconButtonTemplate")
+    toggleButton:SetSize(32, 32)
+    toggleButton:SetPoint("LEFT", search, "RIGHT", 0, -1)
+    toggleButton:SetScript("OnClick", function(self)
+        wt:ToggleWeaponSkills()
+        if self:IsShown() and GameTooltip:IsOwned(self) then
+            local onEnter = self:GetScript("OnEnter")
+            if onEnter ~= nil then
+                onEnter(self)
+            end
+        end
+    end)
+    toggleButton:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        GameTooltip:SetText(wt.showingWeaponSkills and wt.L.SHOW_SPELLS or wt.L.SHOW_WEAPONS)
+        GameTooltip:Show()
+    end)
+    toggleButton:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    toggleButton:SetScript("OnHide", function(self)
+        if GameTooltip:IsOwned(self) then GameTooltip:Hide() end
+    end)
+    mainFrame.weaponSkillToggleButton = toggleButton
+
+    local noticeButton = CreateFrame("Button", "$parentNoticeButton", mainFrame, "UIPanelInfoButton")
+    noticeButton:SetPoint("LEFT", toggleButton, "RIGHT", 4, 0)
+    noticeButton:Hide()
+    noticeButton:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        GameTooltip:SetText(wt.L.OPEN_BEAST_TRAINING, 1, 1, 1, 1, true)
+        if wt.gameVersion ~= "forever" then
+            GameTooltip:AddLine(wt.L.CLICK_TO_OPEN,
+                                GREEN_FONT_COLOR.r, GREEN_FONT_COLOR.g, GREEN_FONT_COLOR.b, true)
+        end
+        GameTooltip:Show()
+    end)
+    local function hideNoticeTooltip(self)
+        if GameTooltip:IsOwned(self) then GameTooltip:Hide() end
+    end
+    noticeButton:SetScript("OnLeave", hideNoticeTooltip)
+    noticeButton:SetScript("OnHide", hideNoticeTooltip)
+    if wt.gameVersion == "forever" then
+        noticeButton:RegisterForClicks()
+        noticeButton:SetScript("OnMouseDown", nil)
+        noticeButton:SetScript("OnMouseUp", nil)
+    else
+        noticeButton:SetScript("OnClick", function()
+            if wt.needsBeastTraining() then
+                if InCombatLockdown() then
+                    print(wt.L.OPEN_BEAST_IN_COMBAT)
+                else
+                    wt.openBeastTraining()
+                end
+            end
+        end)
+    end
+    mainFrame.noticeButton = noticeButton
+
+    local groupingButton = CreateFrame("Button", "$parentGroupingButton", mainFrame, "SquareIconButtonTemplate")
+    groupingButton:SetSize(32, 32)
+    groupingButton:SetPoint("LEFT", toggleButton, "RIGHT", -4, 0)
+    groupingButton:SetIcon("Interface\\Worldmap\\Gear_64Grey.blp")
+    groupingButton:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        GameTooltip:SetText(wt.L.GROUPING_OPTIONS)
+        GameTooltip:Show()
+    end)
+    groupingButton:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    mainFrame.groupingButton = groupingButton
+
+    local popup = CreateFrame("Frame", "$parentGroupingPopup", mainFrame, "BackdropTemplate")
+    popup:SetSize(200, 156)
+    popup:SetPoint("TOPLEFT", groupingButton, "BOTTOMLEFT", 0, -2)
+    popup:SetFrameStrata("DIALOG")
+    popup:SetBackdrop(BACKDROP_DIALOG_32_32)
+    popup:EnableMouse(true)
+    popup:Hide()
+    mainFrame.groupingPopup = popup
+
+    local title = popup:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    title:SetPoint("TOPLEFT", popup, "TOPLEFT", 16, -14)
+    title:SetText(wt.L.GROUPING_OPTIONS_TITLE)
+
+    local function addRadio(group, name, groupTitle, onSelect)
+        local radio = CreateFrame("CheckButton", name, popup, "UIRadioButtonTemplate")
+        local prev = group[#group]
+        if prev then
+            radio:SetPoint("TOPLEFT", prev, "BOTTOMLEFT", 0, -6)
+        else
+            radio:SetPoint("TOPLEFT", groupTitle, "BOTTOMLEFT", 0, -8)
+        end
+        radio:SetScript("OnClick", function(self)
+            for _, r in ipairs(group) do
+                r:SetChecked(r == self)
+            end
+            PlaySound(SOUNDKIT.U_CHAT_SCROLL_BUTTON)
+            onSelect(self.value)
+        end)
+        tinsert(group, radio)
+        return radio
+    end
+    local function labelRadio(radio, label)
+        local text = radio.text or radio.Text or _G[radio:GetName() .. "Text"]
+        if text then
+            text:SetFontObject("GameFontNormalSmall")
+            text:SetText(label)
+            text:SetPoint("LEFT", radio, "RIGHT", 2, 0)
+            radio:SetHitRectInsets(0, -(text:GetStringWidth() + 2), 0, 0)
+        end
+    end
+
+    local radioDefs = {
+        { mode = "zone",        label = wt.L.GROUP_BY_ZONE },
+        { mode = "weaponskill", label = wt.L.GROUP_BY_WEAPON_SKILL },
+        { mode = "list",        label = wt.L.GROUP_LIST },
+    }
+    local function setGrouping(mode)
+        WT_WeaponGrouping = mode
+        wt:ApplyFilter()
+    end
+    popup.radios = {}
+    for i, def in ipairs(radioDefs) do
+        local radio = addRadio(popup.radios, "$parentRadio" .. i, title, setGrouping)
+        radio.value = def.mode
+        labelRadio(radio, def.label)
+    end
+    local prev = popup.radios[#popup.radios]
+
+    local showKnown = CreateFrame("CheckButton", "$parentShowKnown", popup, "UICheckButtonTemplate")
+    showKnown:SetSize(22, 22)
+    showKnown:SetPoint("TOPLEFT", prev, "BOTTOMLEFT", -3, -4)
+    local showKnownText = showKnown.text or showKnown.Text
+    showKnownText:SetFontObject("GameFontNormalSmall")
+    showKnownText:SetText(wt.L.LEDGER_SHOW_KNOWN)
+    showKnownText:ClearAllPoints()
+    showKnownText:SetPoint("LEFT", showKnown, "RIGHT", 0, 0)
+    showKnown:SetHitRectInsets(0, -(showKnownText:GetStringWidth() + 2), 0, 0)
+    showKnown:SetScript("OnClick", function(self)
+        WT_ShowKnownWeaponSkills = self:GetChecked()
+        PlaySound(SOUNDKIT.U_CHAT_SCROLL_BUTTON)
+        wt:ApplyFilter()
+    end)
+
+    local providerTitle = popup:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    providerTitle:SetPoint("TOPLEFT", showKnown, "BOTTOMLEFT", 3, -8)
+    providerTitle:SetText(wt.L.WAYPOINT_PROVIDER_TITLE)
+    popup.providerRadios = {}
+
+    local doneButton = CreateFrame("Button", "$parentDone", popup, "UIPanelButtonTemplate")
+    doneButton:SetSize(80, 22)
+    doneButton:SetPoint("BOTTOMRIGHT", popup, "BOTTOMRIGHT", -12, 10)
+    doneButton:SetText(DONE)
+    doneButton:SetScript("OnClick", function() popup:Hide() end)
+
+    popup:SetScript("OnShow", function(self)
+        local mode = WT_WeaponGrouping
+        for _, r in ipairs(self.radios) do
+            r:SetChecked(r.value == mode)
+        end
+        showKnown:SetChecked(WT_ShowKnownWeaponSkills)
+
+        -- plugins can register providers after this popup was built, so refresh on every show
+        local providers = wt.waypointProviders()
+        local count = #providers > 1 and #providers or 0
+        local active = wt.activeWaypointProvider()
+        for i = 1, count do
+            local radio = self.providerRadios[i]
+                or addRadio(self.providerRadios, "$parentProviderRadio" .. i, providerTitle, wt.setWaypointProvider)
+            radio.value = providers[i].id
+            labelRadio(radio, providers[i].name)
+            radio:SetChecked(providers[i] == active)
+        end
+        for i, radio in ipairs(self.providerRadios) do
+            radio:SetShown(i <= count)
+        end
+        providerTitle:SetShown(count > 0)
+        -- 24 for the title, 22 per radio, keeping the done button below the last one
+        self:SetHeight(count > 0 and 156 + 24 + 22 * count or 156)
+    end)
+
+    groupingButton:SetScript("OnClick", function()
+        if popup:IsShown() then popup:Hide() else popup:Show() end
+    end)
+
+
+    mainFrame:Hide()
+
+    local scrollBar = CreateFrame("ScrollFrame", "$parentScrollBar", mainFrame,
+                                  "FauxScrollFrameTemplate")
+    scrollBar:SetPoint("TOPLEFT", 0, -75)
+    scrollBar:SetPoint("BOTTOMRIGHT", -65, 81)
+    scrollBar:SetScript("OnVerticalScroll", function(self, offset)
+        FauxScrollFrame_OnVerticalScroll(self, offset, mainFrame.scrollStep or ROW_HEIGHT,
+                                         function() update(mainFrame) end)
+    end)
+    function mainFrame:Refresh(forceUpdate)
+        updateToggleIcon(self)
+        updateGroupingButton(self)
+        update(self, forceUpdate)
+    end
+    scrollBar:SetScript("OnShow", function() mainFrame:Refresh(true) end)
+    mainFrame.scrollBar = scrollBar
+
+
+    local rows = {}
+    for i = 1, mainFrame.maxRows or MAX_ROWS do
+        local row = CreateFrame("Button", "$parentRow" .. i, mainFrame)
+        row:SetHeight(ROW_HEIGHT)
+        row:EnableMouse(true)
+        row:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+        row:SetScript("OnClick", function(self, button) wt.RowClick(self, self.currentSpell, button) end)
+        row:SetScript("OnEnter", function(self)
+            tooltip:SetOwner(self, "ANCHOR_RIGHT")
+            wt.SetTooltip(tooltip, self.currentSpell, wt.ClassicPalette)
+        end)
+        row:SetScript("OnLeave", function() tooltip:Hide() end)
+        row:SetScript("OnHide", function(self)
+            if tooltip:IsOwned(self) then tooltip:Hide() end
+        end)
+
+        local highlight = row:CreateTexture("$parentHighlight", "HIGHLIGHT")
+        highlight:SetAllPoints()
+
+        local spell = CreateFrame("Frame", "$parentSpell", row)
+        spell:SetPoint("LEFT", row, "LEFT")
+        spell:SetPoint("TOP", row, "TOP")
+        spell:SetPoint("BOTTOM", row, "BOTTOM")
+        spell:SetPoint("RIGHT", row, "RIGHT")
+
+        local spellIcon = spell:CreateTexture(nil, "OVERLAY")
+        spellIcon:SetPoint("TOPLEFT", spell)
+        spellIcon:SetPoint("BOTTOMLEFT", spell)
+        local iconWidth = ROW_HEIGHT
+        spellIcon:SetWidth(iconWidth)
+        local spellLabel = spell:CreateFontString("$parentLabel", "OVERLAY",
+                                                  "GameFontNormal")
+        spellLabel:SetPoint("TOPLEFT", spell, "TOPLEFT", iconWidth + 4, 0)
+        spellLabel:SetPoint("BOTTOM", spell)
+        spellLabel:SetJustifyV("MIDDLE")
+        spellLabel:SetJustifyH("LEFT")
+        local spellSublabel = spell:CreateFontString("$parentSubLabel",
+                                                     "OVERLAY",
+                                                     "NewSubSpellFont")
+        spellSublabel:SetJustifyH("LEFT")
+        spellSublabel:SetPoint("TOPLEFT", spellLabel, "TOPRIGHT", 2, 0)
+        spellSublabel:SetPoint("BOTTOM", spellLabel)
+        local spellLevelLabel = spell:CreateFontString("$parentLevelLabel",
+                                                       "OVERLAY",
+                                                       "GameFontWhite")
+        spellLevelLabel:SetPoint("TOPRIGHT", spell, -4, 0)
+        spellLevelLabel:SetPoint("BOTTOM", spell)
+        spellLevelLabel:SetJustifyH("RIGHT")
+        spellLevelLabel:SetJustifyV("MIDDLE")
+        spellSublabel:SetPoint("RIGHT", spellLevelLabel, "LEFT")
+        spellSublabel:SetJustifyV("MIDDLE")
+
+        local headerLabel = row:CreateFontString("$parentHeaderLabel",
+                                                 "OVERLAY", "GameFontWhite")
+        headerLabel:SetAllPoints()
+        headerLabel:SetJustifyV("MIDDLE")
+        headerLabel:SetJustifyH("CENTER")
+
+        spell.label = spellLabel
+        spell.subLabel = spellSublabel
+        spell.icon = spellIcon
+        spell.level = spellLevelLabel
+
+        row.highlight = highlight
+        row.header = headerLabel
+        row.spell = spell
+
+        row.zoneIcons = {}
+        for _ = 1, wt.NumCityIcons do
+            local zoneFrame = CreateFrame("Frame", nil, row)
+            zoneFrame:SetSize(ROW_HEIGHT, ROW_HEIGHT)
+            zoneFrame.icon = zoneFrame:CreateTexture(nil, "OVERLAY")
+            zoneFrame.icon:SetAllPoints()
+            zoneFrame:EnableMouse(false)
+            zoneFrame:Hide()
+            tinsert(row.zoneIcons, zoneFrame)
+        end
+
+        if rows[i - 1] == nil then
+            row:SetPoint("TOPLEFT", mainFrame, 26, -78)
+        else
+            row:SetPoint("TOPLEFT", rows[i - 1], "BOTTOMLEFT", 0, -2)
+        end
+        row:SetPoint("RIGHT", scrollBar)
+
+        rawset(rows, i, row)
+    end
+    mainFrame.rows = rows
+end
+
+function wt.CreateFrame()
+    if wt.MainFrame then return end
+    local mainFrame = CreateFrame("Frame", "WhatsTrainingFrame", SpellBookFrame)
+    wt.MainFrame = mainFrame
+    mainFrame:SetPoint("TOPLEFT", SpellBookFrame, "TOPLEFT", 0, 0)
+    mainFrame:SetPoint("BOTTOMRIGHT", SpellBookFrame, "BOTTOMRIGHT", 0, 0)
+    mainFrame:SetFrameStrata("HIGH")
+    local left = mainFrame:CreateTexture(nil, "ARTWORK")
+    left:SetTexture(LEFT_BG_TEXTURE_FILEID)
+    left:SetSize(256, 512)
+    left:SetPoint("TOPLEFT", mainFrame)
+    local right = mainFrame:CreateTexture(nil, "ARTWORK")
+    right:SetTexture(RIGHT_BG_TEXTURE_FILEID)
+    right:SetSize(128, 512)
+    right:SetPoint("TOPRIGHT", mainFrame)
+    wt.CreateCompactFrame(mainFrame)
+    local SKILL_LINE_TAB = MAX_SKILLLINE_TABS - 1
+    function wt.Open(toWeapons)
+        if InCombatLockdown() then
+            print(wt.L.BROKER_OPEN_IN_COMBAT)
+            return
+        end
+        if wt.showingWeaponSkills ~= toWeapons then
+            wt.showingWeaponSkills = toWeapons
+            wt.applyFilter()
+            mainFrame:Refresh(true)
+        end
+        SpellBookFrame.selectedSkillLine = SKILL_LINE_TAB
+        if SpellBookFrame:IsVisible() then
+            SpellBookFrame:Update()
+        else
+            ToggleSpellBook("spell")
+        end
+    end
+
+    attachClassicSpellBook(mainFrame)
+    createWeaponSkillsButton()
+end

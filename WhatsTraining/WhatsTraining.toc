@@ -1,0 +1,69 @@
+## Interface: 20506, 16001, 11509
+## Title: What's Training?
+## Version: 11.0.0
+## Author: Sveng
+## Notes: Shows you what spells are available at your class trainer
+## Notes-ruRU: Показывает, какие заклинания доступны у вашего классового наставника.
+## SavedVariables: WT_WeaponGrouping, WT_ShowKnownWeaponSkills, WT_FloatingFramePoint, WT_WaypointProvider [AllowLoadGameType classic][ExcludeLoadGameType camelot]
+## SavedVariables: WT_WeaponGrouping, WT_ShowKnownWeaponSkills, WT_SpellDisplay, WT_SideBySide, WT_ScrollTwoPages, WT_FloatingFramePoint, WT_WaypointProvider, WT_ProfessionTabPosition [AllowLoadGameType camelot][ExcludeLoadGameType classic]
+## SavedVariablesPerCharacter: WT_LearnedPetAbilities, WT_NeedsToOpenBeastTraining, WT_IgnoredSpells, WT_PriceFaction, WT_HideWeaponSkillSwitcher, WT_Crafting
+## OptionalDeps: ClassTrainerPlus, TomTom [AllowLoadGameType classic][ExcludeLoadGameType camelot]
+## OptionalDeps: ClassTrainerPlusForever, EllesmereUI, EllesmereUIBlizzardSkin, TomTom [AllowLoadGameType camelot][ExcludeLoadGameType classic]
+## X-Curse-Project-ID: 324944
+## X-WoWI-ID: 25031
+## X-Thanks: capitano666 on curse for Shaman SoD info
+
+libs\LibStub.lua
+libs\CallbackHandler-1.0.lua
+libs\LibDataBroker-1.1.lua
+libs\LibBabble-CreatureType-3.0\lib.xml
+libs\FusionIgnoreStore\IgnoreStore.lua
+
+Game.lua
+Localization.lua
+LocalizationFallbacks.lua
+Utils.lua
+Cache.lua
+
+Classes\[Game]\Druid.lua
+Classes\[Game]\Hunter.lua
+Classes\[Game]\HunterPets.lua
+Classes\[Game]\Mage.lua
+Classes\[Game]\Paladin.lua
+Classes\[Game]\Priest.lua
+Classes\[Game]\Rogue.lua
+Classes\[Game]\Shaman.lua
+Classes\[Game]\Warlock.lua
+Classes\[Game]\WarlockTomes.lua
+Classes\[Game]\Warrior.lua
+Classes\[Game]\QuestSpells.lua
+Classes\Player.lua
+Classes\HunterPets.lua
+Classes\WarlockTomes.lua
+Classes\WeaponSkills.lua
+Classes\Camelot\WeaponSkills.lua [AllowLoadGameType camelot][ExcludeLoadGameType classic]
+Classes\[Game]\TrainerFactions.lua
+Pricing.lua
+Compare.lua
+
+Waypoint.lua
+WeaponGrouping.lua
+
+Rows.lua
+WhatsTrainingUI.lua
+FloatingFrame.lua
+Forever\Forever.xml [AllowLoadGameType camelot][ExcludeLoadGameType classic]
+Crafting\Recipes\[Game]\Recipes.xml
+Crafting\SkillLines.lua [AllowLoadGameType classic][ExcludeLoadGameType camelot]
+Crafting\RecipeModel.lua [AllowLoadGameType classic][ExcludeLoadGameType camelot]
+Crafting\RecipeFilters.lua [AllowLoadGameType classic][ExcludeLoadGameType camelot]
+Crafting\SkillsRecipeList.lua [AllowLoadGameType classic][ExcludeLoadGameType camelot]
+Crafting\SkillsTab.lua [AllowLoadGameType classic][ExcludeLoadGameType camelot]
+Crafting\ProfessionTabs.lua [AllowLoadGameType classic][ExcludeLoadGameType camelot]
+Crafting\Crafting.xml [AllowLoadGameType camelot][ExcludeLoadGameType classic]
+Categories.lua
+DataBuilder.lua
+WhatsTraining.lua
+
+Broker.lua
+Api.lua
